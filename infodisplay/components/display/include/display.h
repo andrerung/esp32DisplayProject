@@ -2,9 +2,9 @@
 
 #include <stdint.h>
 
-/* 320x240 landscape, RGB565 */
-#define DISPLAY_WIDTH   320
-#define DISPLAY_HEIGHT  240
+/* 240x320 portrait, RGB565 */
+#define DISPLAY_WIDTH   240
+#define DISPLAY_HEIGHT  320
 
 /* RGB565 colour helpers */
 #define RGB565(r, g, b) ((uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)))

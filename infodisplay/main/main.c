@@ -25,10 +25,11 @@ void app_main(void)
 
     ESP_LOGI(TAG, "Draw text");
     display_fill_color(COLOR_BLACK);
-    display_draw_text_large(8,  20, "Hello InfoDisplay",         COLOR_WHITE,  COLOR_BLACK);
-    display_draw_text      (8,  72, "Phase 1: Hardware Validation", COLOR_CYAN,   COLOR_BLACK);
-    display_draw_text      (8,  96, "ILI9341 SPI OK",            COLOR_GREEN,  COLOR_BLACK);
-    display_draw_text      (8, 120, "320x240 RGB565",            COLOR_YELLOW, COLOR_BLACK);
+    display_draw_text_large(8,  30, "Hello",                     COLOR_WHITE,  COLOR_BLACK);
+    display_draw_text_large(8,  66, "InfoDisplay",               COLOR_WHITE,  COLOR_BLACK);
+    display_draw_text      (8, 120, "Phase 1: HW Validation",    COLOR_CYAN,   COLOR_BLACK);
+    display_draw_text      (8, 144, "ILI9341 SPI OK",            COLOR_GREEN,  COLOR_BLACK);
+    display_draw_text      (8, 168, "240x320 portrait",          COLOR_YELLOW, COLOR_BLACK);
 
     ESP_LOGI(TAG, "Phase 1 display test complete");
 
