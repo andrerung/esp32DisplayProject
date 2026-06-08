@@ -344,3 +344,18 @@ void display_draw_text_large(int x, int y, const char *text, uint16_t fg, uint16
         if (x + 16 > DISPLAY_WIDTH) break;
     }
 }
+
+/* ---- Phase 2 helpers ---- */
+
+void display_draw_hline(int y, uint16_t color)
+{
+    display_fill_rect(0, y, DISPLAY_WIDTH, 2, color);
+}
+
+void display_draw_text_centered(int y, const char *text, uint16_t fg, uint16_t bg)
+{
+    int len = (int)strlen(text);
+    int x   = (DISPLAY_WIDTH - len * 8) / 2;
+    if (x < 0) x = 0;
+    display_draw_text(x, y, text, fg, bg);
+}

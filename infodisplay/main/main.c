@@ -1,39 +1,230 @@
+#include <string.h>
+#include <time.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "esp_event.h"
+#include "esp_netif.h"
+#include "esp_ota_ops.h"
+
 #include "display.h"
+#include "nvs_config.h"
+#include "udp_log.h"
+#include "wifi_manager.h"
+#include "data_fetch.h"
+#include "ota_handler.h"
 
 static const char *TAG = "main";
 
-void app_main(void)
+/* ---- price formatter: "$67,234" / "$82.34" ---- */
+static void format_price(double price, char *buf, size_t len)
 {
-    ESP_LOGI(TAG, "ESP32 InfoDisplay — Phase 1 hardware validation");
+    if (price >= 1000000.0) {
+        long p = (long)price;
+        snprintf(buf, len, "$%ld,%03ld,%03ld",
+                 p / 1000000L, (p / 1000L) % 1000L, p % 1000L);
+    } else if (price >= 1000.0) {
+        long p = (long)price;
+        snprintf(buf, len, "$%ld,%03ld", p / 1000L, p % 1000L);
+    } else if (price >= 0.01) {
+        snprintf(buf, len, "$%.2f", price);
+    } else {
+        snprintf(buf, len, "$%.4f", price);
+    }
+}
 
-    ESP_ERROR_CHECK(display_init());
-
-    ESP_LOGI(TAG, "Fill RED");
-    display_fill_color(COLOR_RED);
-    vTaskDelay(pdMS_TO_TICKS(800));
-
-    ESP_LOGI(TAG, "Fill GREEN");
-    display_fill_color(COLOR_GREEN);
-    vTaskDelay(pdMS_TO_TICKS(800));
-
-    ESP_LOGI(TAG, "Fill BLUE");
-    display_fill_color(COLOR_BLUE);
-    vTaskDelay(pdMS_TO_TICKS(800));
-
-    ESP_LOGI(TAG, "Draw text");
+/* ---- draw the static layout skeleton ---- */
+static void draw_layout(void)
+{
     display_fill_color(COLOR_BLACK);
-    display_draw_text_large(8,  30, "Hello",                     COLOR_WHITE,  COLOR_BLACK);
-    display_draw_text_large(8,  66, "InfoDisplay",               COLOR_WHITE,  COLOR_BLACK);
-    display_draw_text      (8, 120, "Phase 1: HW Validation",    COLOR_CYAN,   COLOR_BLACK);
-    display_draw_text      (8, 144, "ILI9341 SPI OK",            COLOR_GREEN,  COLOR_BLACK);
-    display_draw_text      (8, 168, "240x320 portrait",          COLOR_YELLOW, COLOR_BLACK);
+    display_draw_hline(TILE_SEP1_Y, COLOR_DARK_GRAY);
+    display_draw_hline(TILE_SEP2_Y, COLOR_DARK_GRAY);
+    display_draw_hline(TILE_SEP3_Y, COLOR_DARK_GRAY);
+}
 
-    ESP_LOGI(TAG, "Phase 1 display test complete");
+/* ---- splash shown before WiFi connects ---- */
+static void draw_splash(void)
+{
+    display_fill_color(COLOR_BLACK);
+    /* "InfoDisplay" centered large: 11×16=176px → x=32 */
+    display_draw_text_large(32, 130, "InfoDisplay", COLOR_CYAN, COLOR_BLACK);
+    display_draw_text_centered(176, "Connecting WiFi...", COLOR_GRAY, COLOR_BLACK);
+}
+
+/* ---- UI update task (1 Hz) ---- */
+static void ui_task(void *arg)
+{
+    draw_splash();
+
+    char      prev_time[16]  = {0};
+    char      prev_date[32]  = {0};
+    weather_t prev_weather   = {0};
+    crypto_t  prev_crypto[3] = {0};
+    bool      layout_active  = false;
+    bool      prev_wifi      = false;
+    int       status_tick    = 0;
 
     while (1) {
-        vTaskDelay(pdMS_TO_TICKS(5000));
+        bool wifi = wifi_manager_is_connected();
+
+        /* Transition: WiFi just connected — clear splash, draw layout */
+        if (wifi && !layout_active) {
+            layout_active = true;
+            draw_layout();
+            /* Force full redraw next iteration */
+            prev_time[0] = '\0';
+            prev_date[0] = '\0';
+            memset(&prev_weather, 0, sizeof(prev_weather));
+            memset(prev_crypto,   0, sizeof(prev_crypto));
+            prev_wifi    = false;
+            status_tick  = 5; /* trigger status draw immediately */
+        }
+
+        if (!layout_active) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
+        }
+
+        /* ---- Time ---- */
+        time_t now;
+        struct tm t;
+        time(&now);
+        localtime_r(&now, &t);
+
+        char ts[16], ds[32];
+        strftime(ts, sizeof(ts), "%H:%M:%S", &t);
+        strftime(ds, sizeof(ds), "%a %d %b %Y", &t);
+
+        if (strcmp(ts, prev_time) != 0) {
+            strlcpy(prev_time, ts, sizeof(prev_time));
+            display_fill_rect(0, TILE_TIME_Y, DISPLAY_WIDTH, TILE_TIME_H, COLOR_BLACK);
+            /* "HH:MM:SS" = 8 chars × 16px = 128px → x = (240-128)/2 = 56 */
+            display_draw_text_large(56, TILE_TIME_Y + 8, ts, COLOR_WHITE, COLOR_BLACK);
+        }
+
+        if (strcmp(ds, prev_date) != 0) {
+            strlcpy(prev_date, ds, sizeof(prev_date));
+            display_fill_rect(0, TILE_DATE_Y, DISPLAY_WIDTH, TILE_DATE_H, COLOR_BLACK);
+            display_draw_text_centered(TILE_DATE_Y, ds, COLOR_LIGHT_GRAY, COLOR_BLACK);
+        }
+
+        /* ---- Weather ---- */
+        weather_t w = {0};
+        data_fetch_get_weather(&w);
+        bool weather_changed =
+            w.valid != prev_weather.valid ||
+            w.temp_c != prev_weather.temp_c ||
+            strcmp(w.city,      prev_weather.city)      != 0 ||
+            strcmp(w.condition, prev_weather.condition) != 0;
+
+        if (weather_changed) {
+            prev_weather = w;
+            display_fill_rect(0, TILE_WEATHER_Y, DISPLAY_WIDTH, TILE_WEATHER_H, COLOR_BLACK);
+            if (w.valid) {
+                char line1[32];
+                snprintf(line1, sizeof(line1), "%.16s  %.0fC", w.city, w.temp_c);
+                display_draw_text(8, TILE_WEATHER_Y + 12, line1,       COLOR_CYAN,   COLOR_BLACK);
+                display_draw_text(8, TILE_WEATHER_Y + 34, w.condition, COLOR_YELLOW, COLOR_BLACK);
+            } else {
+                display_draw_text(8, TILE_WEATHER_Y + 20, "Fetching...", COLOR_GRAY, COLOR_BLACK);
+            }
+        }
+
+        /* ---- Crypto ---- */
+        static const int tile_y[3] = {TILE_CRYPTO0_Y, TILE_CRYPTO1_Y, TILE_CRYPTO2_Y};
+        int n = data_fetch_get_crypto_count();
+        for (int i = 0; i < 3; i++) {
+            crypto_t c = {0};
+            if (i < n) data_fetch_get_crypto(i, &c);
+            bool changed =
+                c.valid != prev_crypto[i].valid ||
+                c.price_usd != prev_crypto[i].price_usd ||
+                strcmp(c.symbol, prev_crypto[i].symbol) != 0;
+            if (changed) {
+                prev_crypto[i] = c;
+                int y = tile_y[i];
+                display_fill_rect(0, y, DISPLAY_WIDTH, TILE_CRYPTO_H, COLOR_BLACK);
+                if (c.valid) {
+                    char price[16];
+                    format_price(c.price_usd, price, sizeof(price));
+                    display_draw_text(8, y + 4,  c.symbol, COLOR_GRAY,  COLOR_BLACK);
+                    display_draw_text_large(8, y + 22, price, COLOR_WHITE, COLOR_BLACK);
+                } else if (n == 0 && i == 0) {
+                    display_draw_text(8, y + 20, "Fetching...", COLOR_GRAY, COLOR_BLACK);
+                }
+            }
+        }
+
+        /* ---- Status (every 5 s) ---- */
+        bool wifi_changed = (wifi != prev_wifi);
+        if (wifi_changed || ++status_tick >= 5) {
+            status_tick = 0;
+            prev_wifi   = wifi;
+            display_fill_rect(0, TILE_STATUS_Y, DISPLAY_WIDTH, TILE_STATUS_H, COLOR_BLACK);
+            if (wifi) {
+                char status[48];
+                snprintf(status, sizeof(status), "WiFi %d dBm", wifi_manager_get_rssi());
+                display_draw_text(8, TILE_STATUS_Y, status, COLOR_DARK_GRAY, COLOR_BLACK);
+            } else {
+                display_draw_text(8, TILE_STATUS_Y, "No WiFi", COLOR_RED, COLOR_BLACK);
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
+}
+
+/* ---- WiFi connected callback: start data fetch ---- */
+static void on_wifi_connected(void *arg, esp_event_base_t base,
+                              int32_t id, void *data)
+{
+    ESP_LOGI(TAG, "WiFi connected — starting data fetch");
+    data_fetch_start();
+}
+
+/* ---- app entry point ---- */
+void app_main(void)
+{
+    ESP_LOGI(TAG, "ESP32 InfoDisplay — Phase 2");
+
+    /* NVS must be first */
+    ESP_ERROR_CHECK(nvs_config_init());
+
+    /* System init */
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+
+    /* Optional UDP log forwarding */
+    char udp_host[32] = {0};
+    uint32_t udp_port = 0;
+    nvs_config_get_str(NVS_KEY_LOG_UDP_HOST, udp_host, sizeof(udp_host));
+    nvs_config_get_u32(NVS_KEY_LOG_UDP_PORT, &udp_port, NVS_DEFAULT_LOG_UDP_PORT);
+    if (udp_host[0] != '\0') {
+        if (udp_log_init(udp_host, (uint16_t)udp_port) == ESP_OK) {
+            ESP_LOGI(TAG, "UDP log → %s:%" PRIu32, udp_host, udp_port);
+        }
+    }
+
+    /* Display */
+    ESP_ERROR_CHECK(display_init());
+
+    /* Data fetch state init (no task yet) */
+    ESP_ERROR_CHECK(data_fetch_init());
+
+    /* Register WiFi connected handler */
+    ESP_ERROR_CHECK(esp_event_handler_register(
+        WIFI_MANAGER_EVENTS, WIFI_MANAGER_CONNECTED, on_wifi_connected, NULL));
+
+    /* Start WiFi (gracefully handles "no SSID configured") */
+    wifi_manager_start();
+
+    /* UI task */
+    xTaskCreate(ui_task, "ui", 8192, NULL, 3, NULL);
+
+    /* Mark firmware valid after 30 s stable run (OTA rollback guard) */
+    vTaskDelay(pdMS_TO_TICKS(30000));
+    esp_ota_mark_app_valid_cancel_rollback();
+    ESP_LOGI(TAG, "App marked valid");
+
+    while (1) vTaskDelay(pdMS_TO_TICKS(60000));
 }
