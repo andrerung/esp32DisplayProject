@@ -88,7 +88,11 @@ static void start_ap_mode(void)
 {
     esp_netif_create_default_wifi_ap();
 
-    static const char AP_SSID[] = "InfoDisplay-Setup";
+    /* Fresh SSID — iOS caches "InfoDisplay-Setup" as WPA2-secured from
+       earlier attempts and hides/refuses it now that it is open (security
+       downgrade / evil-twin protection). A name iOS has never seen joins
+       cleanly. */
+    static const char AP_SSID[] = "InfoDisplay-Config";
 
     /* Open AP (no password) — removes the WPA2 4-way handshake, which was
        causing iOS to loop on join. Minimal config matching the proven

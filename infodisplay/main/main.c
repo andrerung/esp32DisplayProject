@@ -53,7 +53,7 @@ static void draw_splash(void)
         /* AP setup mode: "Setup Mode" = 10 chars × 16px = 160px → x=40 */
         display_draw_text_large(40, 60, "Setup Mode", COLOR_CYAN, COLOR_BLACK);
         display_draw_text_centered(104, "Join WiFi network:", COLOR_GRAY,   COLOR_BLACK);
-        display_draw_text_centered(122, "InfoDisplay-Setup",  COLOR_WHITE,  COLOR_BLACK);
+        display_draw_text_centered(122, "InfoDisplay-Config", COLOR_WHITE,  COLOR_BLACK);
         display_draw_text_centered(122 + 36, "Then open browser:", COLOR_GRAY,   COLOR_BLACK);
         display_draw_text_centered(122 + 54, "192.168.4.1",        COLOR_YELLOW, COLOR_BLACK);
     } else {
