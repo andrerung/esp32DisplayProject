@@ -67,7 +67,7 @@ static const char PORTAL_HTML_P2[] =
     "<select name='curr'>"
     "<option value='usd' selected>USD - US Dollar ($)</option>"
     "<option value='brl'>BRL - Real Brasileiro (R$)</option>"
-    "<option value='eur'>EUR - Euro (E)</option>"
+    "<option value='eur'>EUR - Euro (&euro;)</option>"
     "</select>";
 
 /* Part 3: submit button + form close */
@@ -473,7 +473,7 @@ static esp_err_t handler_cfg_get(httpd_req_t *req)
         "<select name='curr'>"
         "<option value='usd'%s>USD - US Dollar ($)</option>"
         "<option value='brl'%s>BRL - Real Brasileiro (R$)</option>"
-        "<option value='eur'%s>EUR - Euro (E)</option>"
+        "<option value='eur'%s>EUR - Euro (&euro;)</option>"
         "</select>",
         strcmp(curr, "usd") == 0 ? " selected" : "",
         strcmp(curr, "brl") == 0 ? " selected" : "",

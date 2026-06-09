@@ -76,8 +76,8 @@ static void format_price(const crypto_t *c, char *buf, size_t len)
 {
     double price = c->price;
     /* E = euro fallback (font only covers ASCII 0x20-0x7E, no € glyph) */
-    const char *sym = strcmp(c->currency, "brl") == 0 ? "R$" :
-                      strcmp(c->currency, "eur") == 0 ? "E"  : "$";
+    const char *sym = strcmp(c->currency, "brl") == 0 ? "R$"    :
+                      strcmp(c->currency, "eur") == 0 ? "\x80" : "$";
     if (price >= 1000000.0) {
         long p = (long)price;
         snprintf(buf, len, "%s%ld,%03ld,%03ld",
