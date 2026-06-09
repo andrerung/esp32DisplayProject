@@ -197,24 +197,43 @@ static bool get_param(const char *body, const char *key, char *out, size_t len)
    newlib localtime_r() evaluates these rules against the current epoch each
    call, so UTC offset adjusts automatically at every DST transition. */
 static const struct { const char *posix; const char *label; } s_timezones[] = {
-    {"UTC0",                             "UTC (UTC+0, no DST)"},
-    {"EST5EDT,M3.2.0,M11.1.0",          "US Eastern (UTC-5/-4, DST Mar-Nov)"},
-    {"CST6CDT,M3.2.0,M11.1.0",          "US Central (UTC-6/-5, DST Mar-Nov)"},
-    {"MST7MDT,M3.2.0,M11.1.0",          "US Mountain (UTC-7/-6, DST Mar-Nov)"},
-    {"PST8PDT,M3.2.0,M11.1.0",          "US Pacific (UTC-8/-7, DST Mar-Nov)"},
-    {"GMT0BST,M3.5.0/1,M10.5.0",        "UK (UTC+0/+1, DST Mar-Oct)"},
-    {"CET-1CEST,M3.5.0,M10.5.0/3",      "Europe Central (UTC+1/+2, DST Mar-Oct)"},
-    {"EET-2EEST,M3.5.0/3,M10.5.0/4",    "Europe Eastern (UTC+2/+3, DST Mar-Oct)"},
-    {"IST-5:30",                         "India (UTC+5:30, no DST)"},
-    {"JST-9",                            "Japan (UTC+9, no DST)"},
-    {"AEST-10AEDT,M10.1.0,M4.1.0/3",    "Australia East (UTC+10/+11, DST Oct-Apr)"},
+    /* ---- Fixed UTC ---- */
+    {"UTC0",                             "UTC+0 (no DST)"},
+    /* ---- Americas ---- */
+    {"NST3:30NDT,M3.2.0/0:01,M11.1.0",  "Canada Newfoundland (UTC-3:30/-2:30, DST)"},
+    {"AST4ADT,M3.2.0,M11.1.0",          "Canada Atlantic (UTC-4/-3, DST Mar-Nov)"},
+    {"EST5EDT,M3.2.0,M11.1.0",          "US / Canada Eastern (UTC-5/-4, DST Mar-Nov)"},
+    {"CST6CDT,M3.2.0,M11.1.0",          "US / Canada Central (UTC-6/-5, DST Mar-Nov)"},
+    {"MST7MDT,M3.2.0,M11.1.0",          "US / Canada Mountain (UTC-7/-6, DST Mar-Nov)"},
+    {"PST8PDT,M3.2.0,M11.1.0",          "US / Canada Pacific (UTC-8/-7, DST Mar-Nov)"},
+    {"AKST9AKDT,M3.2.0,M11.1.0",        "US Alaska (UTC-9/-8, DST Mar-Nov)"},
+    {"HST10",                            "US Hawaii (UTC-10, no DST)"},
+    {"ART3",                             "Argentina (UTC-3, no DST)"},
     {"BRT3",                             "Brazil Brasilia (UTC-3, no DST)"},
     {"AMT4",                             "Brazil Amazon (UTC-4, no DST)"},
     {"FNT2",                             "Brazil Noronha (UTC-2, no DST)"},
-    {"ART3",                             "Argentina (UTC-3, no DST)"},
     {"CLT3",                             "Chile (UTC-3, no DST since 2022)"},
+    /* ---- Europe ---- */
+    {"GMT0BST,M3.5.0/1,M10.5.0",        "UK / Ireland (UTC+0/+1, DST Mar-Oct)"},
+    {"WET0WEST,M3.5.0/1,M10.5.0",       "Portugal / Canary Is. (UTC+0/+1, DST Mar-Oct)"},
+    {"CET-1CEST,M3.5.0,M10.5.0/3",      "Europe Central (UTC+1/+2, DST Mar-Oct)"},
+    {"EET-2EEST,M3.5.0/3,M10.5.0/4",    "Europe Eastern (UTC+2/+3, DST Mar-Oct)"},
     {"MSK-3",                            "Russia Moscow (UTC+3, no DST)"},
-    {"CST-8",                            "China (UTC+8, no DST)"},
+    /* ---- Africa / Middle East ---- */
+    {"WAT-1",                            "West Africa (UTC+1, no DST)"},
+    {"CAT-2",                            "Central / South Africa (UTC+2, no DST)"},
+    {"EAT-3",                            "East Africa (UTC+3, no DST)"},
+    {"GST-4",                            "Gulf States (UTC+4, no DST)"},
+    /* ---- Asia / Pacific ---- */
+    {"PKT-5",                            "Pakistan (UTC+5, no DST)"},
+    {"IST-5:30",                         "India (UTC+5:30, no DST)"},
+    {"ICT-7",                            "SE Asia - Bangkok (UTC+7, no DST)"},
+    {"CST-8",                            "China / Singapore (UTC+8, no DST)"},
+    {"JST-9",                            "Japan / Korea (UTC+9, no DST)"},
+    {"AEST-10AEDT,M10.1.0,M4.1.0/3",    "Australia East (UTC+10/+11, DST Oct-Apr)"},
+    {"ACST-9:30ACDT,M10.1.0,M4.1.0/3",  "Australia Central (UTC+9:30/+10:30, DST Oct-Apr)"},
+    {"AWST-8",                           "Australia West (UTC+8, no DST)"},
+    {"NZST-12NZDT,M9.5.0,M4.1.0/3",     "New Zealand (UTC+12/+13, DST Sep-Apr)"},
 };
 #define TZ_COUNT ((int)(sizeof(s_timezones)/sizeof(s_timezones[0])))
 
