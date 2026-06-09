@@ -170,25 +170,29 @@ static bool get_param(const char *body, const char *key, char *out, size_t len)
 }
 
 /* ---- Timezone table (POSIX strings validated against this list) ---- */
+/* POSIX TZ strings with full DST rules where applicable.
+   Entries without a DST component are for regions that do not observe DST.
+   newlib localtime_r() evaluates these rules against the current epoch each
+   call, so UTC offset adjusts automatically at every DST transition. */
 static const struct { const char *posix; const char *label; } s_timezones[] = {
-    {"UTC0",                             "UTC"},
-    {"EST5EDT,M3.2.0,M11.1.0",          "US Eastern (ET)"},
-    {"CST6CDT,M3.2.0,M11.1.0",          "US Central (CT)"},
-    {"MST7MDT,M3.2.0,M11.1.0",          "US Mountain (MT)"},
-    {"PST8PDT,M3.2.0,M11.1.0",          "US Pacific (PT)"},
-    {"GMT0BST,M3.5.0/1,M10.5.0",        "UK (GMT/BST)"},
-    {"CET-1CEST,M3.5.0,M10.5.0/3",      "Europe Central (CET)"},
-    {"EET-2EEST,M3.5.0/3,M10.5.0/4",    "Europe Eastern (EET)"},
-    {"IST-5:30",                         "India (IST, UTC+5:30)"},
-    {"JST-9",                            "Japan (JST, UTC+9)"},
-    {"AEST-10AEDT,M10.1.0,M4.1.0/3",    "Australia East (AEST)"},
-    {"BRT3",                             "Brazil Brasilia (BRT, UTC-3)"},
-    {"AMT4",                             "Brazil Amazon (AMT, UTC-4)"},
-    {"FNT2",                             "Brazil Noronha (FNT, UTC-2)"},
-    {"ART3",                             "Argentina (ART, UTC-3)"},
-    {"CLT4CLST,M10.2.6/24,M3.2.6/24",   "Chile (CLT)"},
-    {"MSK-3",                            "Russia Moscow (MSK, UTC+3)"},
-    {"CST-8",                            "China (CST, UTC+8)"},
+    {"UTC0",                             "UTC (UTC+0, no DST)"},
+    {"EST5EDT,M3.2.0,M11.1.0",          "US Eastern (UTC-5/-4, DST Mar-Nov)"},
+    {"CST6CDT,M3.2.0,M11.1.0",          "US Central (UTC-6/-5, DST Mar-Nov)"},
+    {"MST7MDT,M3.2.0,M11.1.0",          "US Mountain (UTC-7/-6, DST Mar-Nov)"},
+    {"PST8PDT,M3.2.0,M11.1.0",          "US Pacific (UTC-8/-7, DST Mar-Nov)"},
+    {"GMT0BST,M3.5.0/1,M10.5.0",        "UK (UTC+0/+1, DST Mar-Oct)"},
+    {"CET-1CEST,M3.5.0,M10.5.0/3",      "Europe Central (UTC+1/+2, DST Mar-Oct)"},
+    {"EET-2EEST,M3.5.0/3,M10.5.0/4",    "Europe Eastern (UTC+2/+3, DST Mar-Oct)"},
+    {"IST-5:30",                         "India (UTC+5:30, no DST)"},
+    {"JST-9",                            "Japan (UTC+9, no DST)"},
+    {"AEST-10AEDT,M10.1.0,M4.1.0/3",    "Australia East (UTC+10/+11, DST Oct-Apr)"},
+    {"BRT3",                             "Brazil Brasilia (UTC-3, no DST)"},
+    {"AMT4",                             "Brazil Amazon (UTC-4, no DST)"},
+    {"FNT2",                             "Brazil Noronha (UTC-2, no DST)"},
+    {"ART3",                             "Argentina (UTC-3, no DST)"},
+    {"CLT3",                             "Chile (UTC-3, no DST since 2022)"},
+    {"MSK-3",                            "Russia Moscow (UTC+3, no DST)"},
+    {"CST-8",                            "China (UTC+8, no DST)"},
 };
 #define TZ_COUNT ((int)(sizeof(s_timezones)/sizeof(s_timezones[0])))
 
