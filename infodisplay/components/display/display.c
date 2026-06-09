@@ -170,7 +170,7 @@ static void ili9341_init_sequence(void)
     const uint8_t d9[]  = {0x09, 0x82};
     const uint8_t d10[] = {0x45, 0x15};
     const uint8_t d11[] = {0x90};
-    const uint8_t madctl[] = {0x48}; /* MX=1, BGR=1, portrait, column-flipped */
+    const uint8_t madctl[] = {0x88}; /* MY=1, BGR=1, portrait 180° (MX=0,MY=1) */
 
     ili9341_send_cmd(ILI9341_SWRESET);
     vTaskDelay(pdMS_TO_TICKS(120));
