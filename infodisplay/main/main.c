@@ -1,6 +1,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <time.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -273,6 +274,13 @@ void app_main(void)
     ESP_LOGI(TAG, "ESP32 InfoDisplay booting");
 
     ESP_ERROR_CHECK(nvs_config_init());
+
+    /* Apply stored timezone before SNTP callback converts epoch to local time */
+    char tz[64] = {0};
+    nvs_config_get_str(NVS_KEY_TIMEZONE, tz, sizeof(tz));
+    setenv("TZ", tz[0] ? tz : NVS_DEFAULT_TIMEZONE, 1);
+    tzset();
+
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 

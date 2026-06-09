@@ -169,6 +169,36 @@ static bool get_param(const char *body, const char *key, char *out, size_t len)
     return true;
 }
 
+/* ---- Timezone table (POSIX strings validated against this list) ---- */
+static const struct { const char *posix; const char *label; } s_timezones[] = {
+    {"UTC0",                             "UTC"},
+    {"EST5EDT,M3.2.0,M11.1.0",          "US Eastern (ET)"},
+    {"CST6CDT,M3.2.0,M11.1.0",          "US Central (CT)"},
+    {"MST7MDT,M3.2.0,M11.1.0",          "US Mountain (MT)"},
+    {"PST8PDT,M3.2.0,M11.1.0",          "US Pacific (PT)"},
+    {"GMT0BST,M3.5.0/1,M10.5.0",        "UK (GMT/BST)"},
+    {"CET-1CEST,M3.5.0,M10.5.0/3",      "Europe Central (CET)"},
+    {"EET-2EEST,M3.5.0/3,M10.5.0/4",    "Europe Eastern (EET)"},
+    {"IST-5:30",                         "India (IST, UTC+5:30)"},
+    {"JST-9",                            "Japan (JST, UTC+9)"},
+    {"AEST-10AEDT,M10.1.0,M4.1.0/3",    "Australia East (AEST)"},
+    {"BRT3",                             "Brazil Brasilia (BRT, UTC-3)"},
+    {"AMT4",                             "Brazil Amazon (AMT, UTC-4)"},
+    {"FNT2",                             "Brazil Noronha (FNT, UTC-2)"},
+    {"ART3",                             "Argentina (ART, UTC-3)"},
+    {"CLT4CLST,M10.2.6/24,M3.2.6/24",   "Chile (CLT)"},
+    {"MSK-3",                            "Russia Moscow (MSK, UTC+3)"},
+    {"CST-8",                            "China (CST, UTC+8)"},
+};
+#define TZ_COUNT ((int)(sizeof(s_timezones)/sizeof(s_timezones[0])))
+
+static bool tz_valid(const char *tz)
+{
+    for (int i = 0; i < TZ_COUNT; i++)
+        if (strcmp(tz, s_timezones[i].posix) == 0) return true;
+    return false;
+}
+
 /* ---- Restart timer ---- */
 
 static esp_timer_handle_t s_restart_timer = NULL;
@@ -213,6 +243,24 @@ static esp_err_t handler_root(httpd_req_t *req)
     httpd_resp_sendstr_chunk(req, "</select>");
 
     httpd_resp_sendstr_chunk(req, PORTAL_HTML_P2);
+
+    /* Timezone dropdown — inject with current NVS value pre-selected */
+    {
+        char tz_nvs[64] = {0};
+        nvs_config_get_str(NVS_KEY_TIMEZONE, tz_nvs, sizeof(tz_nvs));
+        if (tz_nvs[0] == '\0') strlcpy(tz_nvs, NVS_DEFAULT_TIMEZONE, sizeof(tz_nvs));
+        httpd_resp_sendstr_chunk(req, "<label>Timezone</label><select name='tz'>");
+        for (int i = 0; i < TZ_COUNT; i++) {
+            char opt[160];
+            snprintf(opt, sizeof(opt), "<option value='%s'%s>%s</option>",
+                     s_timezones[i].posix,
+                     strcmp(tz_nvs, s_timezones[i].posix) == 0 ? " selected" : "",
+                     s_timezones[i].label);
+            httpd_resp_sendstr_chunk(req, opt);
+        }
+        httpd_resp_sendstr_chunk(req, "</select>");
+    }
+
     httpd_resp_sendstr_chunk(req, PORTAL_HTML_P3);
     httpd_resp_sendstr_chunk(req, NULL);
     return ESP_OK;
@@ -221,14 +269,14 @@ static esp_err_t handler_root(httpd_req_t *req)
 static esp_err_t handler_save(httpd_req_t *req)
 {
     int total = req->content_len;
-    if (total <= 0 || total > 512) {
+    if (total <= 0 || total > 768) {
         httpd_resp_set_status(req, "302 Found");
         httpd_resp_set_hdr(req, "Location", "http://192.168.4.1/");
         httpd_resp_send(req, NULL, 0);
         return ESP_OK;
     }
 
-    char body[513] = {0};
+    char body[769] = {0};
     int received = 0;
     while (received < total) {
         int ret = httpd_req_recv(req, body + received, total - received);
@@ -245,6 +293,7 @@ static esp_err_t handler_save(httpd_req_t *req)
     char wkey[64]     = {0};
     char coins[128]   = {0};
     char curr[4]      = {0};
+    char tz[64]       = {0};
     get_param(body, "ssid",     ssid,     sizeof(ssid));
     get_param(body, "ssid_sel", ssid_sel, sizeof(ssid_sel));
     get_param(body, "pass",     pass,     sizeof(pass));
@@ -252,6 +301,7 @@ static esp_err_t handler_save(httpd_req_t *req)
     get_param(body, "wkey",     wkey,     sizeof(wkey));
     get_param(body, "coins",    coins,    sizeof(coins));
     get_param(body, "curr",     curr,     sizeof(curr));
+    get_param(body, "tz",       tz,       sizeof(tz));
 
     /* Manual text input takes priority; dropdown value is the fallback */
     if (ssid[0] == '\0') strlcpy(ssid, ssid_sel, sizeof(ssid));
@@ -271,7 +321,8 @@ static esp_err_t handler_save(httpd_req_t *req)
     if (coins[0]) nvs_config_set_str(NVS_KEY_CRYPTO_COINS, coins);
     if (strcmp(curr, "usd") == 0 || strcmp(curr, "brl") == 0 || strcmp(curr, "eur") == 0)
         nvs_config_set_str(NVS_KEY_CRYPTO_CURRENCY, curr);
-    ESP_LOGI(TAG, "Config saved: SSID=\"%s\" city=\"%s\" curr=%s", ssid, city, curr);
+    if (tz_valid(tz)) nvs_config_set_str(NVS_KEY_TIMEZONE, tz);
+    ESP_LOGI(TAG, "Config saved: SSID=\"%s\" city=\"%s\" curr=%s tz=%s", ssid, city, curr, tz);
 
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     httpd_resp_send(req, SAVED_HTML, HTTPD_RESP_USE_STRLEN);
@@ -383,6 +434,24 @@ static esp_err_t handler_cfg_get(httpd_req_t *req)
         strcmp(curr, "brl") == 0 ? " selected" : "",
         strcmp(curr, "eur") == 0 ? " selected" : "");
     httpd_resp_sendstr_chunk(req, tmp);
+
+    /* Timezone dropdown */
+    {
+        char tz_nvs[64] = {0};
+        nvs_config_get_str(NVS_KEY_TIMEZONE, tz_nvs, sizeof(tz_nvs));
+        if (tz_nvs[0] == '\0') strlcpy(tz_nvs, NVS_DEFAULT_TIMEZONE, sizeof(tz_nvs));
+        httpd_resp_sendstr_chunk(req, "<label>Timezone</label><select name='tz'>");
+        for (int i = 0; i < TZ_COUNT; i++) {
+            char opt[160];
+            snprintf(opt, sizeof(opt), "<option value='%s'%s>%s</option>",
+                     s_timezones[i].posix,
+                     strcmp(tz_nvs, s_timezones[i].posix) == 0 ? " selected" : "",
+                     s_timezones[i].label);
+            httpd_resp_sendstr_chunk(req, opt);
+        }
+        httpd_resp_sendstr_chunk(req, "</select>");
+    }
+
     httpd_resp_sendstr_chunk(req, CFG_HTML_E);
     httpd_resp_sendstr_chunk(req, NULL);
     return ESP_OK;
@@ -391,13 +460,13 @@ static esp_err_t handler_cfg_get(httpd_req_t *req)
 static esp_err_t handler_cfg_post(httpd_req_t *req)
 {
     int total = req->content_len;
-    if (total <= 0 || total > 512) {
+    if (total <= 0 || total > 768) {
         httpd_resp_set_status(req, "302 Found");
         httpd_resp_set_hdr(req, "Location", "/");
         httpd_resp_send(req, NULL, 0);
         return ESP_OK;
     }
-    char body[513] = {0};
+    char body[769] = {0};
     int received = 0;
     while (received < total) {
         int ret = httpd_req_recv(req, body + received, total - received);
@@ -413,12 +482,14 @@ static esp_err_t handler_cfg_post(httpd_req_t *req)
     char wkey[64]   = {0};
     char coins[128] = {0};
     char curr[4]    = {0};
+    char tz[64]     = {0};
     get_param(body, "ssid",  ssid,  sizeof(ssid));
     get_param(body, "pass",  pass,  sizeof(pass));
     get_param(body, "city",  city,  sizeof(city));
     get_param(body, "wkey",  wkey,  sizeof(wkey));
     get_param(body, "coins", coins, sizeof(coins));
     get_param(body, "curr",  curr,  sizeof(curr));
+    get_param(body, "tz",    tz,    sizeof(tz));
 
     /* Only write fields that were actually filled in — preserve the rest */
     if (ssid[0])  nvs_config_set_str(NVS_KEY_WIFI_SSID,    ssid);
@@ -428,8 +499,9 @@ static esp_err_t handler_cfg_post(httpd_req_t *req)
     if (coins[0]) nvs_config_set_str(NVS_KEY_CRYPTO_COINS, coins);
     if (strcmp(curr, "usd") == 0 || strcmp(curr, "brl") == 0 || strcmp(curr, "eur") == 0)
         nvs_config_set_str(NVS_KEY_CRYPTO_CURRENCY, curr);
-    ESP_LOGI(TAG, "Config updated: SSID=%s city=%s curr=%s",
-             ssid[0] ? ssid : "(unchanged)", city[0] ? city : "(unchanged)", curr);
+    if (tz_valid(tz)) nvs_config_set_str(NVS_KEY_TIMEZONE, tz);
+    ESP_LOGI(TAG, "Config updated: SSID=%s city=%s curr=%s tz=%s",
+             ssid[0] ? ssid : "(unchanged)", city[0] ? city : "(unchanged)", curr, tz);
 
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     httpd_resp_send(req, SAVED_HTML, HTTPD_RESP_USE_STRLEN);
@@ -461,23 +533,31 @@ static esp_err_t handler_status(httpd_req_t *req)
     if (part && esp_ota_get_partition_description(part, &desc) == ESP_OK)
         strlcpy(version, desc.version, sizeof(version));
 
+    char tz[64] = {0};
+    nvs_config_get_str(NVS_KEY_TIMEZONE, tz, sizeof(tz));
+    if (tz[0] == '\0') strlcpy(tz, NVS_DEFAULT_TIMEZONE, sizeof(tz));
+
     char j_ssid[128]  = {0};
     char j_city[64]   = {0};
     char j_coins[256] = {0};
+    char j_tz[80]     = {0};
     json_escape(ssid,  j_ssid,  sizeof(j_ssid));
     json_escape(city,  j_city,  sizeof(j_city));
     json_escape(coins, j_coins, sizeof(j_coins));
+    json_escape(tz,    j_tz,    sizeof(j_tz));
 
-    char buf[768];
+    char buf[896];
     snprintf(buf, sizeof(buf),
         "{\"ip\":\"%s\",\"connected\":%s,\"rssi\":%d,\"uptime_s\":%lld,"
         "\"ssid\":\"%s\",\"city\":\"%s\",\"coins\":\"%s\",\"currency\":\"%s\","
+        "\"timezone\":\"%s\","
         "\"ota_running\":%s,\"firmware\":\"%s\"}",
         ip,
         wifi_manager_is_connected() ? "true" : "false",
         (int)rssi,
         (long long)uptime_s,
         j_ssid, j_city, j_coins, curr,
+        j_tz,
         ota_handler_is_running() ? "true" : "false",
         version);
 
