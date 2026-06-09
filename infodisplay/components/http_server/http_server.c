@@ -76,6 +76,28 @@ static const char PORTAL_HTML_P3[] =
     "</form>"
     "</body></html>";
 
+/* Shown after a save that doesn't require a restart (no WiFi change) */
+static const char SAVED_LIVE_HTML[] =
+    "<!DOCTYPE html><html>"
+    "<head>"
+    "<meta charset='UTF-8'>"
+    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+    "<title>Saved</title>"
+    "<style>"
+    "body{background:#0a0a0a;color:#ddd;font-family:-apple-system,sans-serif;"
+    "text-align:center;padding:60px 20px}"
+    "h1{color:#00ff88;font-size:1.8em;margin-bottom:16px}"
+    "p{color:#666}"
+    "a{color:#00ccff}"
+    "</style>"
+    "</head>"
+    "<body>"
+    "<h1>&#10003; Settings Saved</h1>"
+    "<p>Changes take effect immediately.<br><br>"
+    "Crypto prices update within 60 s.<br><br>"
+    "<a href='/'>Back</a></p>"
+    "</body></html>";
+
 static const char SAVED_HTML[] =
     "<!DOCTYPE html><html>"
     "<head>"
@@ -503,13 +525,24 @@ static esp_err_t handler_cfg_post(httpd_req_t *req)
     if (coins[0]) nvs_config_set_str(NVS_KEY_CRYPTO_COINS, coins);
     if (strcmp(curr, "usd") == 0 || strcmp(curr, "brl") == 0 || strcmp(curr, "eur") == 0)
         nvs_config_set_str(NVS_KEY_CRYPTO_CURRENCY, curr);
-    if (tz_valid(tz)) nvs_config_set_str(NVS_KEY_TIMEZONE, tz);
+    if (tz_valid(tz)) {
+        nvs_config_set_str(NVS_KEY_TIMEZONE, tz);
+        /* Apply timezone immediately — no restart needed */
+        setenv("TZ", tz, 1);
+        tzset();
+    }
     ESP_LOGI(TAG, "Config updated: SSID=%s city=%s curr=%s tz=%s",
              ssid[0] ? ssid : "(unchanged)", city[0] ? city : "(unchanged)", curr, tz);
 
     httpd_resp_set_type(req, "text/html; charset=utf-8");
-    httpd_resp_send(req, SAVED_HTML, HTTPD_RESP_USE_STRLEN);
-    esp_timer_start_once(s_restart_timer, 2000000ULL);
+    /* Restart only when WiFi credentials were actually changed */
+    bool wifi_changed = (ssid[0] != '\0' || pass[0] != '\0');
+    if (wifi_changed) {
+        httpd_resp_send(req, SAVED_HTML, HTTPD_RESP_USE_STRLEN);
+        esp_timer_start_once(s_restart_timer, 2000000ULL);
+    } else {
+        httpd_resp_send(req, SAVED_LIVE_HTML, HTTPD_RESP_USE_STRLEN);
+    }
     return ESP_OK;
 }
 
