@@ -70,20 +70,24 @@ static int boot_vprintf(const char *fmt, va_list args)
     return n;
 }
 
-/* ---- price formatter: "$67,234" / "$82.34" ---- */
-static void format_price(double price, char *buf, size_t len)
+/* ---- price formatter: "$67,234" / "R$321,456" / "E67,234" ---- */
+static void format_price(const crypto_t *c, char *buf, size_t len)
 {
+    double price = c->price;
+    /* E = euro fallback (font only covers ASCII 0x20-0x7E, no € glyph) */
+    const char *sym = strcmp(c->currency, "brl") == 0 ? "R$" :
+                      strcmp(c->currency, "eur") == 0 ? "E"  : "$";
     if (price >= 1000000.0) {
         long p = (long)price;
-        snprintf(buf, len, "$%ld,%03ld,%03ld",
-                 p / 1000000L, (p / 1000L) % 1000L, p % 1000L);
+        snprintf(buf, len, "%s%ld,%03ld,%03ld",
+                 sym, p / 1000000L, (p / 1000L) % 1000L, p % 1000L);
     } else if (price >= 1000.0) {
         long p = (long)price;
-        snprintf(buf, len, "$%ld,%03ld", p / 1000L, p % 1000L);
+        snprintf(buf, len, "%s%ld,%03ld", sym, p / 1000L, p % 1000L);
     } else if (price >= 0.01) {
-        snprintf(buf, len, "$%.2f", price);
+        snprintf(buf, len, "%s%.2f", sym, price);
     } else {
-        snprintf(buf, len, "$%.4f", price);
+        snprintf(buf, len, "%s%.4f", sym, price);
     }
 }
 
@@ -207,15 +211,16 @@ static void ui_task(void *arg)
             if (i < n) data_fetch_get_crypto(i, &c);
             bool changed =
                 c.valid != prev_crypto[i].valid ||
-                c.price_usd != prev_crypto[i].price_usd ||
-                strcmp(c.symbol, prev_crypto[i].symbol) != 0;
+                c.price != prev_crypto[i].price ||
+                strcmp(c.symbol,   prev_crypto[i].symbol)   != 0 ||
+                strcmp(c.currency, prev_crypto[i].currency) != 0;
             if (changed) {
                 prev_crypto[i] = c;
                 int y = tile_y[i];
                 display_fill_rect(0, y, DISPLAY_WIDTH, TILE_CRYPTO_H, COLOR_BLACK);
                 if (c.valid) {
                     char price[16];
-                    format_price(c.price_usd, price, sizeof(price));
+                    format_price(&c, price, sizeof(price));
                     display_draw_text(8, y + 4,  c.symbol, COLOR_GRAY,  COLOR_BLACK);
                     display_draw_text_large(8, y + 22, price, COLOR_WHITE, COLOR_BLACK);
                 } else if (n == 0 && i == 0) {

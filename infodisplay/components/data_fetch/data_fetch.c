@@ -178,14 +178,22 @@ static void fetch_crypto(void)
     if (coins_str[0] == '\0')
         strlcpy(coins_str, NVS_DEFAULT_CRYPTO_COINS, sizeof(coins_str));
 
+    char currency[4] = {0};
+    nvs_config_get_str(NVS_KEY_CRYPTO_CURRENCY, currency, sizeof(currency));
+    if (currency[0] == '\0') strlcpy(currency, NVS_DEFAULT_CRYPTO_CURRENCY, sizeof(currency));
+    /* Validate — prevents invalid values from entering the URL or JSON key */
+    if (strcmp(currency, "usd") != 0 && strcmp(currency, "brl") != 0 &&
+        strcmp(currency, "eur") != 0)
+        strlcpy(currency, NVS_DEFAULT_CRYPTO_CURRENCY, sizeof(currency));
+
     char url[256];
     snprintf(url, sizeof(url),
-        "https://api.coingecko.com/api/v3/simple/price?ids=%s&vs_currencies=usd",
-        coins_str);
+        "https://api.coingecko.com/api/v3/simple/price?ids=%s&vs_currencies=%s",
+        coins_str, currency);
 
     if (http_get(url) != ESP_OK) return;
 
-    /* Parse: {"bitcoin":{"usd":67234.5},...} */
+    /* Parse: {"bitcoin":{"usd":67234.5},...} or {"bitcoin":{"brl":321456},...} */
     char work[128];
     strlcpy(work, coins_str, sizeof(work));
 
@@ -200,12 +208,12 @@ static void fetch_crypto(void)
         const char *p = strstr(s_http_buf, pat);
         if (p) {
             p += strlen(pat);
-            /* p now points to {"usd":67234.5} */
             double price = 0;
-            if (jnum(p, "usd", &price)) {
-                strlcpy(tmp[count].id,     tok,             sizeof(tmp[count].id));
-                strlcpy(tmp[count].symbol, coin_symbol(tok),sizeof(tmp[count].symbol));
-                tmp[count].price_usd    = price;
+            if (jnum(p, currency, &price)) {
+                strlcpy(tmp[count].id,       tok,              sizeof(tmp[count].id));
+                strlcpy(tmp[count].symbol,   coin_symbol(tok), sizeof(tmp[count].symbol));
+                strlcpy(tmp[count].currency, currency,         sizeof(tmp[count].currency));
+                tmp[count].price        = price;
                 tmp[count].valid        = true;
                 tmp[count].last_updated = time(NULL);
                 count++;

@@ -47,7 +47,7 @@ static const char PORTAL_HTML_P1[] =
     "<form method='POST' action='/save'>"
     "<label>WiFi Network (SSID)</label>";
 
-/* Part 2: manual SSID fallback input + remaining fields → end of page */
+/* Part 2: manual SSID fallback + fields up to coins input */
 static const char PORTAL_HTML_P2[] =
     "<label>Or enter SSID manually</label>"
     "<input name='ssid' placeholder='Hidden or unlisted network' autocomplete='off'>"
@@ -61,6 +61,15 @@ static const char PORTAL_HTML_P2[] =
     "<p class='hint'>Get a free API key at openweathermap.org &rarr; API keys</p>"
     "<label>Crypto Coins (CoinGecko IDs, comma-separated)</label>"
     "<input name='coins' value='bitcoin,ethereum,litecoin'>"
+    "<label>Crypto Price Currency</label>"
+    "<select name='curr'>"
+    "<option value='usd' selected>USD - US Dollar ($)</option>"
+    "<option value='brl'>BRL - Real Brasileiro (R$)</option>"
+    "<option value='eur'>EUR - Euro (E)</option>"
+    "</select>";
+
+/* Part 3: submit button + form close */
+static const char PORTAL_HTML_P3[] =
     "<button type='submit'>Save &amp; Connect</button>"
     "</form>"
     "</body></html>";
@@ -187,6 +196,7 @@ static esp_err_t handler_root(httpd_req_t *req)
     httpd_resp_sendstr_chunk(req, "</select>");
 
     httpd_resp_sendstr_chunk(req, PORTAL_HTML_P2);
+    httpd_resp_sendstr_chunk(req, PORTAL_HTML_P3);
     httpd_resp_sendstr_chunk(req, NULL);
     return ESP_OK;
 }
@@ -217,12 +227,14 @@ static esp_err_t handler_save(httpd_req_t *req)
     char city[32]     = {0};
     char wkey[64]     = {0};
     char coins[128]   = {0};
+    char curr[4]      = {0};
     get_param(body, "ssid",     ssid,     sizeof(ssid));
     get_param(body, "ssid_sel", ssid_sel, sizeof(ssid_sel));
     get_param(body, "pass",     pass,     sizeof(pass));
     get_param(body, "city",     city,     sizeof(city));
     get_param(body, "wkey",     wkey,     sizeof(wkey));
     get_param(body, "coins",    coins,    sizeof(coins));
+    get_param(body, "curr",     curr,     sizeof(curr));
 
     /* Manual text input takes priority; dropdown value is the fallback */
     if (ssid[0] == '\0') strlcpy(ssid, ssid_sel, sizeof(ssid));
@@ -240,7 +252,9 @@ static esp_err_t handler_save(httpd_req_t *req)
     if (city[0])  nvs_config_set_str(NVS_KEY_WEATHER_CITY, city);
     if (wkey[0])  nvs_config_set_str(NVS_KEY_WEATHER_KEY,  wkey);
     if (coins[0]) nvs_config_set_str(NVS_KEY_CRYPTO_COINS, coins);
-    ESP_LOGI(TAG, "Config saved: SSID=\"%s\" city=\"%s\"", ssid, city);
+    if (strcmp(curr, "usd") == 0 || strcmp(curr, "brl") == 0 || strcmp(curr, "eur") == 0)
+        nvs_config_set_str(NVS_KEY_CRYPTO_CURRENCY, curr);
+    ESP_LOGI(TAG, "Config saved: SSID=\"%s\" city=\"%s\" curr=%s", ssid, city, curr);
 
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     httpd_resp_send(req, SAVED_HTML, HTTPD_RESP_USE_STRLEN);
@@ -275,9 +289,10 @@ static const char CFG_HTML_A[] =
     ".ip{color:#00ff88;font-size:.82em;margin-bottom:18px}"
     "label{display:block;color:#777;font-size:.75em;text-transform:uppercase;"
     "letter-spacing:.05em;margin-top:14px}"
-    "input{width:100%;padding:9px 11px;background:#181818;border:1px solid #333;"
+    "input,select{width:100%;padding:9px 11px;background:#181818;border:1px solid #333;"
     "color:#ddd;border-radius:5px;font-size:1em;margin-top:5px;outline:none}"
-    "input:focus{border-color:#00ccff}"
+    "input:focus,select:focus{border-color:#00ccff}"
+    "select{-webkit-appearance:none;appearance:none}"
     ".hint{color:#444;font-size:.72em;margin-top:3px}"
     "button{width:100%;padding:12px;background:#00ccff;color:#000;border:none;"
     "border-radius:5px;font-size:1em;font-weight:700;cursor:pointer;margin-top:24px}"
@@ -311,13 +326,16 @@ static esp_err_t handler_cfg_get(httpd_req_t *req)
     char ssid[64]   = {0};
     char city[32]   = {0};
     char coins[128] = {0};
+    char curr[4]    = {0};
     char ip[16]     = {0};
-    nvs_config_get_str(NVS_KEY_WIFI_SSID,    ssid,  sizeof(ssid));
-    nvs_config_get_str(NVS_KEY_WEATHER_CITY, city,  sizeof(city));
-    nvs_config_get_str(NVS_KEY_CRYPTO_COINS, coins, sizeof(coins));
+    nvs_config_get_str(NVS_KEY_WIFI_SSID,       ssid,  sizeof(ssid));
+    nvs_config_get_str(NVS_KEY_WEATHER_CITY,    city,  sizeof(city));
+    nvs_config_get_str(NVS_KEY_CRYPTO_COINS,    coins, sizeof(coins));
+    nvs_config_get_str(NVS_KEY_CRYPTO_CURRENCY, curr,  sizeof(curr));
+    if (curr[0] == '\0') strlcpy(curr, NVS_DEFAULT_CRYPTO_CURRENCY, sizeof(curr));
     wifi_manager_get_ip(ip, sizeof(ip));
 
-    char tmp[300];
+    char tmp[512];
     char esc[200];
 
     httpd_resp_set_type(req, "text/html; charset=utf-8");
@@ -335,6 +353,18 @@ static esp_err_t handler_cfg_get(httpd_req_t *req)
     httpd_resp_sendstr_chunk(req, CFG_HTML_D);
     html_escape(coins, esc, sizeof(esc));
     snprintf(tmp, sizeof(tmp), "<input name='coins' value=\"%s\">", esc);
+    httpd_resp_sendstr_chunk(req, tmp);
+    /* Currency dropdown — mark current value as selected */
+    snprintf(tmp, sizeof(tmp),
+        "<label>Crypto Price Currency</label>"
+        "<select name='curr'>"
+        "<option value='usd'%s>USD - US Dollar ($)</option>"
+        "<option value='brl'%s>BRL - Real Brasileiro (R$)</option>"
+        "<option value='eur'%s>EUR - Euro (E)</option>"
+        "</select>",
+        strcmp(curr, "usd") == 0 ? " selected" : "",
+        strcmp(curr, "brl") == 0 ? " selected" : "",
+        strcmp(curr, "eur") == 0 ? " selected" : "");
     httpd_resp_sendstr_chunk(req, tmp);
     httpd_resp_sendstr_chunk(req, CFG_HTML_E);
     httpd_resp_sendstr_chunk(req, NULL);
@@ -365,11 +395,13 @@ static esp_err_t handler_cfg_post(httpd_req_t *req)
     char city[32]   = {0};
     char wkey[64]   = {0};
     char coins[128] = {0};
+    char curr[4]    = {0};
     get_param(body, "ssid",  ssid,  sizeof(ssid));
     get_param(body, "pass",  pass,  sizeof(pass));
     get_param(body, "city",  city,  sizeof(city));
     get_param(body, "wkey",  wkey,  sizeof(wkey));
     get_param(body, "coins", coins, sizeof(coins));
+    get_param(body, "curr",  curr,  sizeof(curr));
 
     /* Only write fields that were actually filled in — preserve the rest */
     if (ssid[0])  nvs_config_set_str(NVS_KEY_WIFI_SSID,    ssid);
@@ -377,8 +409,10 @@ static esp_err_t handler_cfg_post(httpd_req_t *req)
     if (city[0])  nvs_config_set_str(NVS_KEY_WEATHER_CITY, city);
     if (wkey[0])  nvs_config_set_str(NVS_KEY_WEATHER_KEY,  wkey);
     if (coins[0]) nvs_config_set_str(NVS_KEY_CRYPTO_COINS, coins);
-    ESP_LOGI(TAG, "Config updated: SSID=%s city=%s",
-             ssid[0] ? ssid : "(unchanged)", city[0] ? city : "(unchanged)");
+    if (strcmp(curr, "usd") == 0 || strcmp(curr, "brl") == 0 || strcmp(curr, "eur") == 0)
+        nvs_config_set_str(NVS_KEY_CRYPTO_CURRENCY, curr);
+    ESP_LOGI(TAG, "Config updated: SSID=%s city=%s curr=%s",
+             ssid[0] ? ssid : "(unchanged)", city[0] ? city : "(unchanged)", curr);
 
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     httpd_resp_send(req, SAVED_HTML, HTTPD_RESP_USE_STRLEN);

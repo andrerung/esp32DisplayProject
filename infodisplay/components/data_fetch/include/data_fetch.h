@@ -16,7 +16,8 @@ typedef struct {
 typedef struct {
     char   id[32];       /* CoinGecko id, e.g. "bitcoin" */
     char   symbol[8];    /* Display symbol, e.g. "BTC"    */
-    double price_usd;
+    double price;
+    char   currency[4];  /* "usd", "brl", or "eur"        */
     time_t last_updated;
     bool   valid;
 } crypto_t;

@@ -9,6 +9,7 @@
 #define NVS_KEY_WEATHER_KEY      "weather_key"
 #define NVS_KEY_WEATHER_CITY     "weather_city"
 #define NVS_KEY_CRYPTO_COINS     "crypto_coins"
+#define NVS_KEY_CRYPTO_CURRENCY  "crypto_curr"
 #define NVS_KEY_CRYPTO_INTERVAL  "crypto_ivl"
 #define NVS_KEY_WEATHER_INTERVAL "weather_ivl"
 #define NVS_KEY_LOG_UDP_HOST     "log_udp_host"
@@ -17,6 +18,7 @@
 /* Compile-time defaults */
 #define NVS_DEFAULT_WEATHER_CITY     "London"
 #define NVS_DEFAULT_CRYPTO_COINS     "bitcoin,ethereum,litecoin"
+#define NVS_DEFAULT_CRYPTO_CURRENCY  "usd"
 #define NVS_DEFAULT_CRYPTO_INTERVAL  60u
 #define NVS_DEFAULT_WEATHER_INTERVAL 600u
 #define NVS_DEFAULT_LOG_UDP_PORT     5555u
