@@ -33,8 +33,15 @@ static void reconnect_cb(void *arg)
 static void wifi_event_handler(void *arg, esp_event_base_t base,
                                int32_t id, void *data)
 {
-    /* In AP mode only STA events are irrelevant — ignore them */
-    if (s_ap_mode) return;
+    if (s_ap_mode) {
+        /* AP is up and beaconing — now it is safe to start DNS + HTTP */
+        if (base == WIFI_EVENT && id == WIFI_EVENT_AP_START) {
+            ESP_LOGI(TAG, "AP started — signaling captive portal");
+            esp_event_post(WIFI_MANAGER_EVENTS, WIFI_MANAGER_AP_STARTED,
+                           NULL, 0, 0);
+        }
+        return;
+    }
 
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
@@ -84,17 +91,18 @@ static void start_ap_mode(void)
     static const char AP_SSID[] = "InfoDisplay-Setup";
     wifi_config_t ap_cfg = {};
     strlcpy((char *)ap_cfg.ap.ssid, AP_SSID, sizeof(ap_cfg.ap.ssid));
-    ap_cfg.ap.ssid_len      = (uint8_t)strlen(AP_SSID);
-    ap_cfg.ap.max_connection = 4;
-    ap_cfg.ap.authmode       = WIFI_AUTH_OPEN;
+    ap_cfg.ap.ssid_len         = (uint8_t)strlen(AP_SSID);
+    ap_cfg.ap.channel          = 6;    /* explicit — channel 0 is invalid */
+    ap_cfg.ap.max_connection   = 4;
+    ap_cfg.ap.beacon_interval  = 100;  /* ms; 0 causes some platforms to miss beacons */
+    ap_cfg.ap.authmode         = WIFI_AUTH_OPEN;
+    ap_cfg.ap.pmf_cfg.required = false;
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
-    ESP_ERROR_CHECK(esp_wifi_start());
-
-    s_ap_mode = true;
-    ESP_LOGI(TAG, "AP mode: SSID=\"%s\"  IP=192.168.4.1", AP_SSID);
-    esp_event_post(WIFI_MANAGER_EVENTS, WIFI_MANAGER_AP_STARTED, NULL, 0, 0);
+    s_ap_mode = true; /* set before esp_wifi_start() to guard event handler */
+    ESP_LOGI(TAG, "AP mode configured: SSID=\"%s\" ch=6", AP_SSID);
+    ESP_ERROR_CHECK(esp_wifi_start()); /* fires WIFI_EVENT_AP_START async */
 }
 
 esp_err_t wifi_manager_start(void)
