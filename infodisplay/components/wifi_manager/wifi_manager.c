@@ -90,24 +90,20 @@ static void start_ap_mode(void)
 
     static const char AP_SSID[] = "InfoDisplay-Setup";
     static const char AP_PASS[] = "configure";   /* shown on TFT */
+
+    /* Minimal config matching the proven ESP-IDF captive_portal example.
+       Earlier attempts with explicit PMF/CCMP/bandwidth broke AP startup. */
     wifi_config_t ap_cfg = {};
     strlcpy((char *)ap_cfg.ap.ssid,     AP_SSID, sizeof(ap_cfg.ap.ssid));
     strlcpy((char *)ap_cfg.ap.password, AP_PASS, sizeof(ap_cfg.ap.password));
-    ap_cfg.ap.ssid_len            = (uint8_t)strlen(AP_SSID);
-    ap_cfg.ap.channel             = 6;
-    ap_cfg.ap.max_connection      = 4;
-    ap_cfg.ap.beacon_interval     = 100;
-    ap_cfg.ap.authmode            = WIFI_AUTH_WPA2_PSK;
-    ap_cfg.ap.pairwise_cipher     = WIFI_CIPHER_TYPE_CCMP; /* explicit — avoids ambiguous beacon RSN IE */
-    ap_cfg.ap.pmf_cfg.capable     = true;  /* advertise PMF support — required for iOS 14+ association */
-    ap_cfg.ap.pmf_cfg.required    = false; /* don't mandate PMF so Android < 10 can also join */
+    ap_cfg.ap.ssid_len       = (uint8_t)strlen(AP_SSID);
+    ap_cfg.ap.max_connection = 4;
+    ap_cfg.ap.authmode       = WIFI_AUTH_WPA_WPA2_PSK;
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
-    /* Force 20 MHz — HT40 default on C3 confuses some clients */
-    esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW20);
     s_ap_mode = true;
-    ESP_LOGI(TAG, "AP mode configured: SSID=\"%s\" ch=6 WPA2-CCMP+PMF", AP_SSID);
+    ESP_LOGI(TAG, "AP mode configured: SSID=\"%s\" pass=\"%s\"", AP_SSID, AP_PASS);
     ESP_ERROR_CHECK(esp_wifi_start()); /* fires WIFI_EVENT_AP_START async */
 }
 

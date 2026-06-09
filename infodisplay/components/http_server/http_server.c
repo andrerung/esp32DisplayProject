@@ -183,12 +183,15 @@ static esp_err_t handler_save(httpd_req_t *req)
 }
 
 /* Catch-all: redirect every unknown URL to the config page.
-   This triggers captive-portal detection on iOS, Android, and Windows. */
+   This triggers captive-portal detection on iOS, Android, and Windows.
+   iOS requires a non-empty body to detect the portal — a bare redirect
+   with an empty body is not sufficient (per ESP-IDF captive_portal example). */
 static esp_err_t handler_404(httpd_req_t *req, httpd_err_code_t err)
 {
     httpd_resp_set_status(req, "302 Found");
     httpd_resp_set_hdr(req, "Location", "http://192.168.4.1/");
-    httpd_resp_send(req, NULL, 0);
+    httpd_resp_send(req, "Redirecting to InfoDisplay setup",
+                    HTTPD_RESP_USE_STRLEN);
     return ESP_OK;
 }
 
