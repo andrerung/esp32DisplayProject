@@ -13,6 +13,7 @@ ESP_EVENT_DEFINE_BASE(WIFI_MANAGER_EVENTS);
 static const char *TAG = "wifi_manager";
 
 static bool s_connected;
+static bool s_ap_mode;
 static char s_ip[16];
 static int  s_retry;
 static esp_timer_handle_t s_reconnect_timer;
@@ -32,6 +33,9 @@ static void reconnect_cb(void *arg)
 static void wifi_event_handler(void *arg, esp_event_base_t base,
                                int32_t id, void *data)
 {
+    /* In AP mode only STA events are irrelevant — ignore them */
+    if (s_ap_mode) return;
+
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
 
@@ -40,7 +44,9 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
         esp_event_post(WIFI_MANAGER_EVENTS, WIFI_MANAGER_DISCONNECTED, NULL, 0, 0);
         int delay = backoff_s(s_retry++);
         ESP_LOGW(TAG, "Disconnected — retry in %d s", delay);
-        esp_timer_start_once(s_reconnect_timer, (uint64_t)delay * 1000000ULL);
+        if (s_reconnect_timer) {
+            esp_timer_start_once(s_reconnect_timer, (uint64_t)delay * 1000000ULL);
+        }
 
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *ev = (ip_event_got_ip_t *)data;
@@ -52,17 +58,8 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
     }
 }
 
-esp_err_t wifi_manager_start(void)
+static void start_sta_mode(const char *ssid, const char *pass)
 {
-    char ssid[64] = {0}, pass[64] = {0};
-    nvs_config_get_str(NVS_KEY_WIFI_SSID, ssid, sizeof(ssid));
-    nvs_config_get_str(NVS_KEY_WIFI_PASS, pass, sizeof(pass));
-
-    if (ssid[0] == '\0') {
-        ESP_LOGW(TAG, "No WiFi SSID configured — skipping");
-        return ESP_ERR_INVALID_STATE;
-    }
-
     esp_timer_create_args_t ta = {
         .callback = reconnect_cb,
         .name     = "wm_reconnect",
@@ -70,13 +67,6 @@ esp_err_t wifi_manager_start(void)
     ESP_ERROR_CHECK(esp_timer_create(&ta, &s_reconnect_timer));
 
     esp_netif_create_default_wifi_sta();
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
-                                               wifi_event_handler, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
-                                               wifi_event_handler, NULL));
-
     wifi_config_t wcfg = {};
     strlcpy((char *)wcfg.sta.ssid,     ssid, sizeof(wcfg.sta.ssid));
     strlcpy((char *)wcfg.sta.password, pass, sizeof(wcfg.sta.password));
@@ -85,10 +75,52 @@ esp_err_t wifi_manager_start(void)
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wcfg));
     ESP_ERROR_CHECK(esp_wifi_start()); /* STA_START fires → connect */
     ESP_LOGI(TAG, "Connecting to \"%s\"...", ssid);
+}
+
+static void start_ap_mode(void)
+{
+    esp_netif_create_default_wifi_ap();
+
+    static const char AP_SSID[] = "InfoDisplay-Setup";
+    wifi_config_t ap_cfg = {};
+    strlcpy((char *)ap_cfg.ap.ssid, AP_SSID, sizeof(ap_cfg.ap.ssid));
+    ap_cfg.ap.ssid_len      = (uint8_t)strlen(AP_SSID);
+    ap_cfg.ap.max_connection = 4;
+    ap_cfg.ap.authmode       = WIFI_AUTH_OPEN;
+
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
+    ESP_ERROR_CHECK(esp_wifi_start());
+
+    s_ap_mode = true;
+    ESP_LOGI(TAG, "AP mode: SSID=\"%s\"  IP=192.168.4.1", AP_SSID);
+    esp_event_post(WIFI_MANAGER_EVENTS, WIFI_MANAGER_AP_STARTED, NULL, 0, 0);
+}
+
+esp_err_t wifi_manager_start(void)
+{
+    char ssid[64] = {0};
+    nvs_config_get_str(NVS_KEY_WIFI_SSID, ssid, sizeof(ssid));
+
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
+                                               wifi_event_handler, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
+                                               wifi_event_handler, NULL));
+
+    if (ssid[0] == '\0') {
+        start_ap_mode();
+    } else {
+        char pass[64] = {0};
+        nvs_config_get_str(NVS_KEY_WIFI_PASS, pass, sizeof(pass));
+        start_sta_mode(ssid, pass);
+    }
     return ESP_OK;
 }
 
 bool wifi_manager_is_connected(void) { return s_connected; }
+bool wifi_manager_is_ap_mode(void)   { return s_ap_mode;   }
 
 void wifi_manager_get_ip(char *buf, size_t len)
 {

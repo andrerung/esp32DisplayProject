@@ -13,6 +13,8 @@
 #include "wifi_manager.h"
 #include "data_fetch.h"
 #include "ota_handler.h"
+#include "dns_server.h"
+#include "http_server.h"
 
 static const char *TAG = "main";
 
@@ -46,9 +48,19 @@ static void draw_layout(void)
 static void draw_splash(void)
 {
     display_fill_color(COLOR_BLACK);
-    /* "InfoDisplay" centered large: 11×16=176px → x=32 */
-    display_draw_text_large(32, 130, "InfoDisplay", COLOR_CYAN, COLOR_BLACK);
-    display_draw_text_centered(176, "Connecting WiFi...", COLOR_GRAY, COLOR_BLACK);
+
+    if (wifi_manager_is_ap_mode()) {
+        /* AP setup mode: "Setup Mode" = 10 chars × 16px = 160px → x=40 */
+        display_draw_text_large(40, 60, "Setup Mode", COLOR_CYAN, COLOR_BLACK);
+        display_draw_text_centered(104, "Join WiFi network:", COLOR_GRAY,  COLOR_BLACK);
+        display_draw_text_centered(122, "InfoDisplay-Setup", COLOR_WHITE, COLOR_BLACK);
+        display_draw_text_centered(158, "Then open browser:", COLOR_GRAY,  COLOR_BLACK);
+        display_draw_text_centered(176, "192.168.4.1",       COLOR_YELLOW, COLOR_BLACK);
+    } else {
+        /* "InfoDisplay" = 11 chars × 16px = 176px → x=32 */
+        display_draw_text_large(32, 130, "InfoDisplay", COLOR_CYAN, COLOR_BLACK);
+        display_draw_text_centered(176, "Connecting WiFi...", COLOR_GRAY, COLOR_BLACK);
+    }
 }
 
 /* ---- UI update task (1 Hz) ---- */
@@ -65,19 +77,24 @@ static void ui_task(void *arg)
     int       status_tick    = 0;
 
     while (1) {
+        /* In AP mode there is no STA connection — keep showing the setup splash */
+        if (wifi_manager_is_ap_mode()) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
+        }
+
         bool wifi = wifi_manager_is_connected();
 
         /* Transition: WiFi just connected — clear splash, draw layout */
         if (wifi && !layout_active) {
             layout_active = true;
             draw_layout();
-            /* Force full redraw next iteration */
             prev_time[0] = '\0';
             prev_date[0] = '\0';
             memset(&prev_weather, 0, sizeof(prev_weather));
             memset(prev_crypto,   0, sizeof(prev_crypto));
             prev_wifi    = false;
-            status_tick  = 5; /* trigger status draw immediately */
+            status_tick  = 5;
         }
 
         if (!layout_active) {
@@ -98,7 +115,6 @@ static void ui_task(void *arg)
         if (strcmp(ts, prev_time) != 0) {
             strlcpy(prev_time, ts, sizeof(prev_time));
             display_fill_rect(0, TILE_TIME_Y, DISPLAY_WIDTH, TILE_TIME_H, COLOR_BLACK);
-            /* "HH:MM:SS" = 8 chars × 16px = 128px → x = (240-128)/2 = 56 */
             display_draw_text_large(56, TILE_TIME_Y + 8, ts, COLOR_WHITE, COLOR_BLACK);
         }
 
@@ -174,7 +190,8 @@ static void ui_task(void *arg)
     }
 }
 
-/* ---- WiFi connected callback: start data fetch ---- */
+/* ---- Event handlers ---- */
+
 static void on_wifi_connected(void *arg, esp_event_base_t base,
                               int32_t id, void *data)
 {
@@ -182,15 +199,20 @@ static void on_wifi_connected(void *arg, esp_event_base_t base,
     data_fetch_start();
 }
 
+static void on_ap_started(void *arg, esp_event_base_t base,
+                          int32_t id, void *data)
+{
+    ESP_LOGI(TAG, "AP mode active — starting captive portal");
+    dns_server_start();
+    http_server_start_portal();
+}
+
 /* ---- app entry point ---- */
 void app_main(void)
 {
-    ESP_LOGI(TAG, "ESP32 InfoDisplay — Phase 2");
+    ESP_LOGI(TAG, "ESP32 InfoDisplay booting");
 
-    /* NVS must be first */
     ESP_ERROR_CHECK(nvs_config_init());
-
-    /* System init */
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
@@ -205,20 +227,16 @@ void app_main(void)
         }
     }
 
-    /* Display */
     ESP_ERROR_CHECK(display_init());
-
-    /* Data fetch state init (no task yet) */
     ESP_ERROR_CHECK(data_fetch_init());
 
-    /* Register WiFi connected handler */
     ESP_ERROR_CHECK(esp_event_handler_register(
-        WIFI_MANAGER_EVENTS, WIFI_MANAGER_CONNECTED, on_wifi_connected, NULL));
+        WIFI_MANAGER_EVENTS, WIFI_MANAGER_CONNECTED,  on_wifi_connected, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(
+        WIFI_MANAGER_EVENTS, WIFI_MANAGER_AP_STARTED, on_ap_started, NULL));
 
-    /* Start WiFi (gracefully handles "no SSID configured") */
     wifi_manager_start();
 
-    /* UI task */
     xTaskCreate(ui_task, "ui", 8192, NULL, 3, NULL);
 
     /* Mark firmware valid after 30 s stable run (OTA rollback guard) */
