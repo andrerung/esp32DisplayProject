@@ -554,8 +554,15 @@ static esp_err_t handler_cfg_post(httpd_req_t *req)
              ssid[0] ? ssid : "(unchanged)", city[0] ? city : "(unchanged)", curr, tz);
 
     httpd_resp_set_type(req, "text/html; charset=utf-8");
-    /* Restart only when WiFi credentials were actually changed */
-    bool wifi_changed = (ssid[0] != '\0' || pass[0] != '\0');
+    /* Restart only when WiFi credentials actually changed.
+     * The SSID field is pre-filled in the form, so it is always present in
+     * the POST body even when the user didn't touch it — compare against the
+     * stored value to detect a real change. Password field is left blank by
+     * default, so any non-empty submission means the user changed it. */
+    char stored_ssid[64] = {0};
+    nvs_config_get_str(NVS_KEY_WIFI_SSID, stored_ssid, sizeof(stored_ssid));
+    bool wifi_changed = (pass[0] != '\0') ||
+                        (ssid[0] != '\0' && strcmp(ssid, stored_ssid) != 0);
     if (wifi_changed) {
         httpd_resp_send(req, SAVED_HTML, HTTPD_RESP_USE_STRLEN);
         esp_timer_start_once(s_restart_timer, 2000000ULL);
