@@ -51,11 +51,12 @@ static void draw_splash(void)
 
     if (wifi_manager_is_ap_mode()) {
         /* AP setup mode: "Setup Mode" = 10 chars × 16px = 160px → x=40 */
-        display_draw_text_large(40, 60, "Setup Mode", COLOR_CYAN, COLOR_BLACK);
-        display_draw_text_centered(104, "Join WiFi network:", COLOR_GRAY,  COLOR_BLACK);
-        display_draw_text_centered(122, "InfoDisplay-Setup", COLOR_WHITE, COLOR_BLACK);
-        display_draw_text_centered(158, "Then open browser:", COLOR_GRAY,  COLOR_BLACK);
-        display_draw_text_centered(176, "192.168.4.1",       COLOR_YELLOW, COLOR_BLACK);
+        display_draw_text_large(40, 50, "Setup Mode", COLOR_CYAN, COLOR_BLACK);
+        display_draw_text_centered( 94, "Join WiFi network:", COLOR_GRAY,   COLOR_BLACK);
+        display_draw_text_centered(112, "InfoDisplay-Setup",  COLOR_WHITE,  COLOR_BLACK);
+        display_draw_text_centered(134, "Password: configure", COLOR_YELLOW, COLOR_BLACK);
+        display_draw_text_centered(168, "Then open browser:", COLOR_GRAY,   COLOR_BLACK);
+        display_draw_text_centered(186, "192.168.4.1",        COLOR_WHITE,  COLOR_BLACK);
     } else {
         /* "InfoDisplay" = 11 chars × 16px = 176px → x=32 */
         display_draw_text_large(32, 130, "InfoDisplay", COLOR_CYAN, COLOR_BLACK);

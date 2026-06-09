@@ -89,19 +89,21 @@ static void start_ap_mode(void)
     esp_netif_create_default_wifi_ap();
 
     static const char AP_SSID[] = "InfoDisplay-Setup";
+    static const char AP_PASS[] = "configure";   /* shown on TFT */
     wifi_config_t ap_cfg = {};
-    strlcpy((char *)ap_cfg.ap.ssid, AP_SSID, sizeof(ap_cfg.ap.ssid));
+    strlcpy((char *)ap_cfg.ap.ssid,     AP_SSID, sizeof(ap_cfg.ap.ssid));
+    strlcpy((char *)ap_cfg.ap.password, AP_PASS, sizeof(ap_cfg.ap.password));
     ap_cfg.ap.ssid_len         = (uint8_t)strlen(AP_SSID);
-    ap_cfg.ap.channel          = 6;    /* explicit — channel 0 is invalid */
+    ap_cfg.ap.channel          = 6;
     ap_cfg.ap.max_connection   = 4;
-    ap_cfg.ap.beacon_interval  = 100;  /* ms; 0 causes some platforms to miss beacons */
-    ap_cfg.ap.authmode         = WIFI_AUTH_OPEN;
+    ap_cfg.ap.beacon_interval  = 100;
+    ap_cfg.ap.authmode         = WIFI_AUTH_WPA2_PSK; /* open APs rejected by iOS 14+ */
     ap_cfg.ap.pmf_cfg.required = false;
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
     s_ap_mode = true; /* set before esp_wifi_start() to guard event handler */
-    ESP_LOGI(TAG, "AP mode configured: SSID=\"%s\" ch=6", AP_SSID);
+    ESP_LOGI(TAG, "AP mode configured: SSID=\"%s\" pass=\"%s\" ch=6", AP_SSID, AP_PASS);
     ESP_ERROR_CHECK(esp_wifi_start()); /* fires WIFI_EVENT_AP_START async */
 }
 
