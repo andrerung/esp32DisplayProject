@@ -89,21 +89,20 @@ static void start_ap_mode(void)
     esp_netif_create_default_wifi_ap();
 
     static const char AP_SSID[] = "InfoDisplay-Setup";
-    static const char AP_PASS[] = "configure";   /* shown on TFT */
 
-    /* Minimal config matching the proven ESP-IDF captive_portal example.
-       Earlier attempts with explicit PMF/CCMP/bandwidth broke AP startup. */
+    /* Open AP (no password) — removes the WPA2 4-way handshake, which was
+       causing iOS to loop on join. Minimal config matching the proven
+       ESP-IDF captive_portal example. */
     wifi_config_t ap_cfg = {};
-    strlcpy((char *)ap_cfg.ap.ssid,     AP_SSID, sizeof(ap_cfg.ap.ssid));
-    strlcpy((char *)ap_cfg.ap.password, AP_PASS, sizeof(ap_cfg.ap.password));
+    strlcpy((char *)ap_cfg.ap.ssid, AP_SSID, sizeof(ap_cfg.ap.ssid));
     ap_cfg.ap.ssid_len       = (uint8_t)strlen(AP_SSID);
     ap_cfg.ap.max_connection = 4;
-    ap_cfg.ap.authmode       = WIFI_AUTH_WPA_WPA2_PSK;
+    ap_cfg.ap.authmode       = WIFI_AUTH_OPEN;
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
     s_ap_mode = true;
-    ESP_LOGI(TAG, "AP mode configured: SSID=\"%s\" pass=\"%s\"", AP_SSID, AP_PASS);
+    ESP_LOGI(TAG, "AP mode configured: SSID=\"%s\" (open)", AP_SSID);
     ESP_ERROR_CHECK(esp_wifi_start()); /* fires WIFI_EVENT_AP_START async */
 }
 
