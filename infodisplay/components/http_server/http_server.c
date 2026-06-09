@@ -7,8 +7,10 @@
 #include "esp_timer.h"
 #include "esp_log.h"
 #include "esp_wifi.h"
+#include "esp_ota_ops.h"
 #include "nvs_config.h"
 #include "wifi_manager.h"
+#include "ota_handler.h"
 #include "http_server.h"
 
 static const char *TAG = "http_server";
@@ -130,6 +132,21 @@ static void html_escape(const char *in, char *out, size_t len)
             memcpy(out + j, ent, elen);
             j += elen;
         } else {
+            out[j++] = in[i];
+        }
+    }
+    out[j] = '\0';
+}
+
+static void json_escape(const char *in, char *out, size_t len)
+{
+    size_t j = 0;
+    for (size_t i = 0; in[i] && j < len - 1; i++) {
+        if (in[i] == '"' || in[i] == '\\') {
+            if (j + 2 >= len) break;
+            out[j++] = '\\';
+            out[j++] = in[i];
+        } else if ((unsigned char)in[i] >= 0x20) {
             out[j++] = in[i];
         }
     }
@@ -420,6 +437,128 @@ static esp_err_t handler_cfg_post(httpd_req_t *req)
     return ESP_OK;
 }
 
+/* ---- GET /status ---- */
+static esp_err_t handler_status(httpd_req_t *req)
+{
+    char ip[16]     = {0};
+    char ssid[64]   = {0};
+    char city[32]   = {0};
+    char coins[128] = {0};
+    char curr[4]    = {0};
+    wifi_manager_get_ip(ip, sizeof(ip));
+    nvs_config_get_str(NVS_KEY_WIFI_SSID,       ssid,  sizeof(ssid));
+    nvs_config_get_str(NVS_KEY_WEATHER_CITY,    city,  sizeof(city));
+    nvs_config_get_str(NVS_KEY_CRYPTO_COINS,    coins, sizeof(coins));
+    nvs_config_get_str(NVS_KEY_CRYPTO_CURRENCY, curr,  sizeof(curr));
+    if (curr[0] == '\0') strlcpy(curr, NVS_DEFAULT_CRYPTO_CURRENCY, sizeof(curr));
+
+    int8_t  rssi     = wifi_manager_get_rssi();
+    int64_t uptime_s = esp_timer_get_time() / 1000000LL;
+
+    char version[32] = "unknown";
+    const esp_partition_t *part = esp_ota_get_running_partition();
+    esp_app_desc_t desc = {};
+    if (part && esp_ota_get_partition_description(part, &desc) == ESP_OK)
+        strlcpy(version, desc.version, sizeof(version));
+
+    char j_ssid[128]  = {0};
+    char j_city[64]   = {0};
+    char j_coins[256] = {0};
+    json_escape(ssid,  j_ssid,  sizeof(j_ssid));
+    json_escape(city,  j_city,  sizeof(j_city));
+    json_escape(coins, j_coins, sizeof(j_coins));
+
+    char buf[768];
+    snprintf(buf, sizeof(buf),
+        "{\"ip\":\"%s\",\"connected\":%s,\"rssi\":%d,\"uptime_s\":%lld,"
+        "\"ssid\":\"%s\",\"city\":\"%s\",\"coins\":\"%s\",\"currency\":\"%s\","
+        "\"ota_running\":%s,\"firmware\":\"%s\"}",
+        ip,
+        wifi_manager_is_connected() ? "true" : "false",
+        (int)rssi,
+        (long long)uptime_s,
+        j_ssid, j_city, j_coins, curr,
+        ota_handler_is_running() ? "true" : "false",
+        version);
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_send(req, buf, HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
+
+/* ---- POST /ota  (body: url=http://host/firmware.bin) ---- */
+static esp_err_t handler_ota(httpd_req_t *req)
+{
+    int total = req->content_len;
+    if (total <= 0 || total > 512) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"ok\":false,\"error\":\"Missing or oversized body\"}",
+                        HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    char body[513] = {0};
+    int received = 0;
+    while (received < total) {
+        int ret = httpd_req_recv(req, body + received, total - received);
+        if (ret == HTTPD_SOCK_ERR_TIMEOUT) continue;
+        if (ret <= 0) return ESP_FAIL;
+        received += ret;
+    }
+    body[received] = '\0';
+
+    char url[256] = {0};
+    get_param(body, "url", url, sizeof(url));
+    if (url[0] == '\0' ||
+        (strncmp(url, "http://", 7) != 0 && strncmp(url, "https://", 8) != 0)) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"ok\":false,\"error\":\"url must start with http:// or https://\"}",
+                        HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+
+    esp_err_t err = ota_handler_start(url);
+    if (err == ESP_ERR_INVALID_STATE) {
+        httpd_resp_set_status(req, "409 Conflict");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"ok\":false,\"error\":\"OTA already running\"}",
+                        HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    if (err != ESP_OK) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "{\"ok\":false,\"error\":\"Failed to start OTA task\"}",
+                        HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+
+    ESP_LOGI(TAG, "OTA triggered via /ota: %s", url);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, "{\"ok\":true,\"message\":\"OTA started — device will restart on success\"}",
+                    HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
+
+/* ---- POST /reset ---- */
+static esp_err_t handler_reset(httpd_req_t *req)
+{
+    /* Drain any body the client sent (keep-alive hygiene) */
+    char discard[64];
+    while (httpd_req_recv(req, discard, sizeof(discard)) > 0) {}
+
+    nvs_config_factory_reset();
+    ESP_LOGW(TAG, "Factory reset via /reset");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req,
+        "{\"ok\":true,\"message\":\"Factory reset complete — restarting\"}",
+        HTTPD_RESP_USE_STRLEN);
+    esp_timer_start_once(s_restart_timer, 2000000ULL);
+    return ESP_OK;
+}
+
 /* ---- Public API ---- */
 
 static httpd_handle_t s_server = NULL;
@@ -468,16 +607,22 @@ esp_err_t http_server_start_config(void)
     }
 
     httpd_config_t config   = HTTPD_DEFAULT_CONFIG();
-    config.max_open_sockets = 4;
+    config.max_open_sockets = 6;
     if (httpd_start(&s_config_server, &config) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start config server");
         return ESP_FAIL;
     }
 
-    static const httpd_uri_t u_get  = { .uri = "/",     .method = HTTP_GET,  .handler = handler_cfg_get  };
-    static const httpd_uri_t u_post = { .uri = "/save", .method = HTTP_POST, .handler = handler_cfg_post };
+    static const httpd_uri_t u_get    = { .uri = "/",       .method = HTTP_GET,  .handler = handler_cfg_get  };
+    static const httpd_uri_t u_post   = { .uri = "/save",   .method = HTTP_POST, .handler = handler_cfg_post };
+    static const httpd_uri_t u_status = { .uri = "/status", .method = HTTP_GET,  .handler = handler_status   };
+    static const httpd_uri_t u_ota    = { .uri = "/ota",    .method = HTTP_POST, .handler = handler_ota      };
+    static const httpd_uri_t u_reset  = { .uri = "/reset",  .method = HTTP_POST, .handler = handler_reset    };
     httpd_register_uri_handler(s_config_server, &u_get);
     httpd_register_uri_handler(s_config_server, &u_post);
+    httpd_register_uri_handler(s_config_server, &u_status);
+    httpd_register_uri_handler(s_config_server, &u_ota);
+    httpd_register_uri_handler(s_config_server, &u_reset);
 
     char ip[16] = {0};
     wifi_manager_get_ip(ip, sizeof(ip));
