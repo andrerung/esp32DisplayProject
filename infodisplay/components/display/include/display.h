@@ -60,3 +60,7 @@ void display_draw_text_large(int x, int y, const char *text, uint16_t fg, uint16
 /* Phase 2 helpers */
 void display_draw_hline(int y, uint16_t color);
 void display_draw_text_centered(int y, const char *text, uint16_t fg, uint16_t bg);
+
+/* Boot-phase scrolling log overlay */
+void display_log_add(const char *msg);    /* thread-safe; call from vprintf hook */
+void display_log_render(void);            /* call from UI task during splash phase */

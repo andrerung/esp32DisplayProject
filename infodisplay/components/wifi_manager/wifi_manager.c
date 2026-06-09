@@ -18,6 +18,10 @@ static char s_ip[16];
 static int  s_retry;
 static esp_timer_handle_t s_reconnect_timer;
 
+#define SCAN_MAX_APS 20
+static wifi_scan_ap_t s_scan_aps[SCAN_MAX_APS];
+static int            s_scan_count = 0;
+
 static int backoff_s(int retry)
 {
     int d = 1 << (retry < 6 ? retry : 6); /* 1,2,4,8,16,32,64 → cap 60 */
@@ -34,11 +38,37 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
                                int32_t id, void *data)
 {
     if (s_ap_mode) {
-        /* AP is up and beaconing — now it is safe to start DNS + HTTP */
         if (base == WIFI_EVENT && id == WIFI_EVENT_AP_START) {
             ESP_LOGI(TAG, "AP started — signaling captive portal");
             esp_event_post(WIFI_MANAGER_EVENTS, WIFI_MANAGER_AP_STARTED,
                            NULL, 0, 0);
+            esp_err_t se = esp_wifi_scan_start(NULL, false); /* async */
+            if (se != ESP_OK)
+                ESP_LOGW(TAG, "scan_start: %s", esp_err_to_name(se));
+        } else if (base == WIFI_EVENT && id == WIFI_EVENT_SCAN_DONE) {
+            uint16_t count = SCAN_MAX_APS;
+            wifi_ap_record_t recs[SCAN_MAX_APS];
+            if (esp_wifi_scan_get_ap_records(&count, recs) == ESP_OK) {
+                s_scan_count = 0;
+                for (uint16_t i = 0; i < count && s_scan_count < SCAN_MAX_APS; i++) {
+                    if (recs[i].ssid[0] == '\0') continue;
+                    bool dup = false;
+                    for (int j = 0; j < s_scan_count; j++) {
+                        if (strcmp(s_scan_aps[j].ssid,
+                                   (char *)recs[i].ssid) == 0) {
+                            dup = true; break;
+                        }
+                    }
+                    if (!dup) {
+                        strlcpy(s_scan_aps[s_scan_count].ssid,
+                                (char *)recs[i].ssid,
+                                sizeof(s_scan_aps[0].ssid));
+                        s_scan_aps[s_scan_count].rssi = recs[i].rssi;
+                        s_scan_count++;
+                    }
+                }
+                ESP_LOGI(TAG, "WiFi scan: %d networks found", s_scan_count);
+            }
         }
         return;
     }
@@ -77,16 +107,27 @@ static void start_sta_mode(const char *ssid, const char *pass)
     wifi_config_t wcfg = {};
     strlcpy((char *)wcfg.sta.ssid,     ssid, sizeof(wcfg.sta.ssid));
     strlcpy((char *)wcfg.sta.password, pass, sizeof(wcfg.sta.password));
+    /* WPA2+WPA3 mixed mode: prefer SAE (WPA3) when the AP supports it.
+       UniFi-UDM advertises WPA3-transitional; WPA2-only connections get a GTK
+       re-key timeout at 10 s because PMF-protected group-key EAPOL frames are
+       required by the AP but not properly handled without SAE negotiation.
+       WPA3-SAE automatically enables PMF (pmf:1), which resolves both issues. */
+    wcfg.sta.threshold.authmode = WIFI_AUTH_WPA2_WPA3_PSK;
+    wcfg.sta.pmf_cfg.capable    = true;
+    wcfg.sta.pmf_cfg.required   = false;
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wcfg));
     ESP_ERROR_CHECK(esp_wifi_start()); /* STA_START fires → connect */
+    /* Disable power save so DHCP offers and GTK re-key frames are never missed. */
+    esp_wifi_set_ps(WIFI_PS_NONE);
     ESP_LOGI(TAG, "Connecting to \"%s\"...", ssid);
 }
 
 static void start_ap_mode(void)
 {
     esp_netif_create_default_wifi_ap();
+    esp_netif_create_default_wifi_sta(); /* APSTA mode needed to scan while AP is up */
 
     /* Fresh SSID — iOS caches "InfoDisplay-Setup" as WPA2-secured from
        earlier attempts and hides/refuses it now that it is open (security
@@ -103,7 +144,7 @@ static void start_ap_mode(void)
     ap_cfg.ap.max_connection = 4;
     ap_cfg.ap.authmode       = WIFI_AUTH_OPEN;
 
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
 
     /* Drop 802.11n: the client kept re-associating every ~0.5s against the
@@ -117,10 +158,10 @@ static void start_ap_mode(void)
     ESP_LOGI(TAG, "AP mode configured: SSID=\"%s\" (open, 11bg)", AP_SSID);
     ESP_ERROR_CHECK(esp_wifi_start()); /* fires WIFI_EVENT_AP_START async */
 
-    /* Lower TX power (40 = 10 dBm). Curbs current spikes that brown out the
-       radio mid-association on USB-powered boards; plenty for a nearby phone.
+    /* 34 × 0.25 dBm = 8.5 dBm — captive portal phone is close; curbs current
+       spikes that brown out the radio on USB-powered boards.
        Must be called after esp_wifi_start(). */
-    esp_err_t te = esp_wifi_set_max_tx_power(40);
+    esp_err_t te = esp_wifi_set_max_tx_power(34);
     if (te != ESP_OK) ESP_LOGW(TAG, "set_max_tx_power: %s", esp_err_to_name(te));
 }
 
@@ -144,6 +185,13 @@ esp_err_t wifi_manager_start(void)
         start_sta_mode(ssid, pass);
     }
     return ESP_OK;
+}
+
+int wifi_manager_copy_scan_results(wifi_scan_ap_t *out, int max_count)
+{
+    int n = s_scan_count < max_count ? s_scan_count : max_count;
+    memcpy(out, s_scan_aps, (size_t)n * sizeof(wifi_scan_ap_t));
+    return n;
 }
 
 bool wifi_manager_is_connected(void) { return s_connected; }

@@ -1,4 +1,6 @@
 #include <string.h>
+#include <stdarg.h>
+#include <stdio.h>
 #include <time.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -17,6 +19,56 @@
 #include "http_server.h"
 
 static const char *TAG = "main";
+
+/* ---- boot-phase vprintf hook — mirrors log output to the TFT scroll area ----
+ * Chains through the previously installed hook (serial vprintf or udp_vprintf).
+ * Stops adding to the display once s_boot_log_active is cleared on WiFi connect.
+ * Security: only processes what ESP_LOG emits — credentials are never logged.    */
+
+static vprintf_like_t  s_prev_vprintf;
+static volatile bool   s_boot_log_active;
+
+static void strip_ansi(const char *src, char *dst, int maxlen)
+{
+    int j = 0;
+    for (int i = 0; src[i] && j < maxlen - 1; i++) {
+        if (src[i] == '\x1b' && src[i + 1] == '[') {
+            i += 2;
+            while (src[i] && src[i] != 'm') i++;
+            continue;
+        }
+        if (src[i] != '\n' && src[i] != '\r')
+            dst[j++] = src[i];
+    }
+    dst[j] = '\0';
+}
+
+static int boot_vprintf(const char *fmt, va_list args)
+{
+    va_list copy;
+    va_copy(copy, args);
+    int n = s_prev_vprintf(fmt, args);  /* serial / UDP log unchanged */
+    if (s_boot_log_active) {
+        /* Static buffers — avoids adding stack pressure to the calling task
+           (WiFi driver, event loop, etc. all have limited stack). The s_busy
+           guard skips display on a re-entrant call; a missed line is harmless. */
+        static char s_raw[128];
+        static char s_clean[48];
+        static volatile bool s_busy;
+        if (!s_busy) {
+            s_busy = true;
+            vsnprintf(s_raw, sizeof(s_raw), fmt, copy);
+            strip_ansi(s_raw, s_clean, sizeof(s_clean));
+            /* "I (12345) tag: msg" → skip timestamp, show "tag: msg" */
+            const char *p = strstr(s_clean, ") ");
+            p = p ? p + 2 : s_clean;
+            display_log_add(p);
+            s_busy = false;
+        }
+    }
+    va_end(copy);
+    return n;
+}
 
 /* ---- price formatter: "$67,234" / "$82.34" ---- */
 static void format_price(double price, char *buf, size_t len)
@@ -57,9 +109,9 @@ static void draw_splash(void)
         display_draw_text_centered(122 + 36, "Then open browser:", COLOR_GRAY,   COLOR_BLACK);
         display_draw_text_centered(122 + 54, "192.168.4.1",        COLOR_YELLOW, COLOR_BLACK);
     } else {
-        /* "InfoDisplay" = 11 chars × 16px = 176px → x=32 */
-        display_draw_text_large(32, 130, "InfoDisplay", COLOR_CYAN, COLOR_BLACK);
-        display_draw_text_centered(176, "Connecting WiFi...", COLOR_GRAY, COLOR_BLACK);
+        /* Compact header — log lines fill the rest of the screen */
+        display_draw_text_centered(1, "InfoDisplay", COLOR_CYAN, COLOR_BLACK);
+        display_fill_rect(0, 17, DISPLAY_WIDTH, 1, COLOR_DARK_GRAY);
     }
 }
 
@@ -98,6 +150,7 @@ static void ui_task(void *arg)
         }
 
         if (!layout_active) {
+            display_log_render();
             vTaskDelay(pdMS_TO_TICKS(1000));
             continue;
         }
@@ -196,7 +249,9 @@ static void on_wifi_connected(void *arg, esp_event_base_t base,
                               int32_t id, void *data)
 {
     ESP_LOGI(TAG, "WiFi connected — starting data fetch");
+    s_boot_log_active = false;  /* normal UI takes over; stop log overlay */
     data_fetch_start();
+    http_server_start_config();
 }
 
 static void on_ap_started(void *arg, esp_event_base_t base,
@@ -228,6 +283,8 @@ void app_main(void)
     }
 
     ESP_ERROR_CHECK(display_init());
+    s_boot_log_active = true;
+    s_prev_vprintf = esp_log_set_vprintf(boot_vprintf);
     ESP_ERROR_CHECK(data_fetch_init());
 
     ESP_ERROR_CHECK(esp_event_handler_register(

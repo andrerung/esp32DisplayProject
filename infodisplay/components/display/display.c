@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/spi_master.h"
@@ -358,4 +359,53 @@ void display_draw_text_centered(int y, const char *text, uint16_t fg, uint16_t b
     int x   = (DISPLAY_WIDTH - len * 8) / 2;
     if (x < 0) x = 0;
     display_draw_text(x, y, text, fg, bg);
+}
+
+/* ---- Boot-phase scrolling log overlay ----------------------------------------
+ * Header row occupies y=0..BOOT_LOG_HEADER_H-1 (drawn by draw_splash).
+ * Log lines fill y=BOOT_LOG_HEADER_H downward; new lines scroll old ones up.
+ * display_log_add() is safe to call from any task or the vprintf hook.        */
+
+#define BOOT_LOG_MAX_LINES  18
+#define BOOT_LOG_LINE_CHARS 30
+#define BOOT_LOG_HEADER_H   18
+#define BOOT_LOG_LINE_H     16
+
+static char         s_log_buf[BOOT_LOG_MAX_LINES][BOOT_LOG_LINE_CHARS + 1];
+static int          s_log_count;
+static portMUX_TYPE s_log_mux = portMUX_INITIALIZER_UNLOCKED;
+
+void display_log_add(const char *msg)
+{
+    taskENTER_CRITICAL(&s_log_mux);
+    if (s_log_count < BOOT_LOG_MAX_LINES) {
+        strlcpy(s_log_buf[s_log_count++], msg, BOOT_LOG_LINE_CHARS + 1);
+    } else {
+        memmove(s_log_buf[0], s_log_buf[1],
+                (size_t)(BOOT_LOG_MAX_LINES - 1) * (BOOT_LOG_LINE_CHARS + 1));
+        strlcpy(s_log_buf[BOOT_LOG_MAX_LINES - 1], msg, BOOT_LOG_LINE_CHARS + 1);
+    }
+    taskEXIT_CRITICAL(&s_log_mux);
+}
+
+void display_log_render(void)
+{
+    char snap[BOOT_LOG_MAX_LINES][BOOT_LOG_LINE_CHARS + 1];
+    int  count;
+    taskENTER_CRITICAL(&s_log_mux);
+    count = s_log_count;
+    memcpy(snap, s_log_buf, sizeof(snap));
+    taskEXIT_CRITICAL(&s_log_mux);
+
+    for (int i = 0; i < BOOT_LOG_MAX_LINES; i++) {
+        int y = BOOT_LOG_HEADER_H + i * BOOT_LOG_LINE_H;
+        if (i < count) {
+            /* Pad to full line width so leftover chars from prior entries are erased */
+            char line[BOOT_LOG_LINE_CHARS + 1];
+            snprintf(line, sizeof(line), "%-30s", snap[i]);
+            display_draw_text(0, y, line, RGB565(0, 180, 0), COLOR_BLACK);
+        } else {
+            display_fill_rect(0, y, DISPLAY_WIDTH, BOOT_LOG_LINE_H, COLOR_BLACK);
+        }
+    }
 }
