@@ -105,9 +105,23 @@ static void start_ap_mode(void)
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
+
+    /* Drop 802.11n: the client kept re-associating every ~0.5s against the
+       SoftAP's 11n and never completed DHCP. 11b/g is slower but stable for
+       a config portal. Not fatal if it fails — log and continue. */
+    esp_err_t pe = esp_wifi_set_protocol(WIFI_IF_AP,
+                       WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G);
+    if (pe != ESP_OK) ESP_LOGW(TAG, "set_protocol: %s", esp_err_to_name(pe));
+
     s_ap_mode = true;
-    ESP_LOGI(TAG, "AP mode configured: SSID=\"%s\" (open)", AP_SSID);
+    ESP_LOGI(TAG, "AP mode configured: SSID=\"%s\" (open, 11bg)", AP_SSID);
     ESP_ERROR_CHECK(esp_wifi_start()); /* fires WIFI_EVENT_AP_START async */
+
+    /* Lower TX power (40 = 10 dBm). Curbs current spikes that brown out the
+       radio mid-association on USB-powered boards; plenty for a nearby phone.
+       Must be called after esp_wifi_start(). */
+    esp_err_t te = esp_wifi_set_max_tx_power(40);
+    if (te != ESP_OK) ESP_LOGW(TAG, "set_max_tx_power: %s", esp_err_to_name(te));
 }
 
 esp_err_t wifi_manager_start(void)
