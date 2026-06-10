@@ -213,6 +213,7 @@ static void ui_task(void *arg)
             bool changed =
                 c.valid != prev_crypto[i].valid ||
                 c.price != prev_crypto[i].price ||
+                c.trend != prev_crypto[i].trend ||
                 strcmp(c.symbol,   prev_crypto[i].symbol)   != 0 ||
                 strcmp(c.currency, prev_crypto[i].currency) != 0;
             if (changed) {
@@ -224,6 +225,12 @@ static void ui_task(void *arg)
                     format_price(&c, price, sizeof(price));
                     display_draw_text(8, y + 4,  c.symbol, COLOR_GRAY,  COLOR_BLACK);
                     display_draw_text_large(8, y + 22, price, COLOR_WHITE, COLOR_BLACK);
+                    if (c.trend != 0) {
+                        int arrow_x = 8 + (int)strlen(price) * 16;
+                        char arrow[2] = { c.trend > 0 ? '\x81' : '\x82', '\0' };
+                        uint16_t arrow_color = c.trend > 0 ? COLOR_GREEN : COLOR_RED;
+                        display_draw_text_large(arrow_x, y + 22, arrow, arrow_color, COLOR_BLACK);
+                    }
                 } else if (n == 0 && i == 0) {
                     display_draw_text(8, y + 20, "Fetching...", COLOR_GRAY, COLOR_BLACK);
                 }

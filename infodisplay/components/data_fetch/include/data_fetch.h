@@ -20,6 +20,7 @@ typedef struct {
     char   currency[4];  /* "usd", "brl", or "eur"        */
     time_t last_updated;
     bool   valid;
+    int8_t trend;        /* 1=up, -1=down, 0=first fetch  */
 } crypto_t;
 
 esp_err_t data_fetch_init(void);

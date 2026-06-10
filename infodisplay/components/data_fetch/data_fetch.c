@@ -223,6 +223,16 @@ static void fetch_crypto(void)
     }
 
     xSemaphoreTake(s_mutex, portMAX_DELAY);
+    for (int i = 0; i < count; i++) {
+        tmp[i].trend = 0;
+        for (int j = 0; j < s_crypto_count; j++) {
+            if (strcmp(tmp[i].id, s_cryptos[j].id) == 0 && s_cryptos[j].valid) {
+                if      (tmp[i].price > s_cryptos[j].price) tmp[i].trend =  1;
+                else if (tmp[i].price < s_cryptos[j].price) tmp[i].trend = -1;
+                break;
+            }
+        }
+    }
     memcpy(s_cryptos, tmp, sizeof(crypto_t) * count);
     s_crypto_count = count;
     xSemaphoreGive(s_mutex);

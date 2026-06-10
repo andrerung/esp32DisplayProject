@@ -130,6 +130,10 @@ static const uint8_t font8x16[][16] = {
     {0x00,0x00,0x3B,0x6E,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}, /* '~' */
     /* index 95 — euro sign € (mapped from byte 0x80) */
     {0x00,0x00,0x1E,0x33,0x60,0x7C,0x60,0x7C,0x60,0x33,0x1E,0x00,0x00,0x00,0x00,0x00}, /* '€' */
+    /* index 96 — up arrow ↑ (mapped from byte 0x81) */
+    {0x00,0x18,0x3C,0x7E,0xFF,0x18,0x18,0x18,0x18,0x18,0x18,0x00,0x00,0x00,0x00,0x00}, /* '↑' */
+    /* index 97 — down arrow ↓ (mapped from byte 0x82) */
+    {0x00,0x18,0x18,0x18,0x18,0x18,0x18,0xFF,0x7E,0x3C,0x18,0x00,0x00,0x00,0x00,0x00}, /* '↓' */
 };
 
 /* ILI9341 command bytes */
@@ -289,8 +293,10 @@ void display_fill_color(uint16_t color)
 static void draw_char(int x, int y, char c, uint16_t fg, uint16_t bg)
 {
     const uint8_t *glyph;
-    if ((unsigned char)c == 0x80)
-        glyph = font8x16[95];  /* € at index 95 */
+    unsigned char uc = (unsigned char)c;
+    if      (uc == 0x80) glyph = font8x16[95];  /* € */
+    else if (uc == 0x81) glyph = font8x16[96];  /* ↑ */
+    else if (uc == 0x82) glyph = font8x16[97];  /* ↓ */
     else {
         if (c < 0x20 || c > 0x7E) c = '?';
         glyph = font8x16[c - 0x20];
@@ -329,8 +335,10 @@ void display_draw_text_large(int x, int y, const char *text, uint16_t fg, uint16
     while (*text) {
         char c = *text++;
         const uint8_t *glyph;
-        if ((unsigned char)c == 0x80)
-            glyph = font8x16[95];  /* € at index 95 */
+        unsigned char uc = (unsigned char)c;
+        if      (uc == 0x80) glyph = font8x16[95];  /* € */
+        else if (uc == 0x81) glyph = font8x16[96];  /* ↑ */
+        else if (uc == 0x82) glyph = font8x16[97];  /* ↓ */
         else {
             if (c < 0x20 || c > 0x7E) c = '?';
             glyph = font8x16[c - 0x20];

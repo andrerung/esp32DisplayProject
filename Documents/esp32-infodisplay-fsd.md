@@ -255,7 +255,11 @@ and credentials configurable via portal.
   when an API has not responded within 2× its configured refresh interval.
 - **FR-1.5** [Should]: The device shall show a WiFi-disconnected indicator on
   the TFT when the network connection is lost.
-- **FR-1.6** [May]: The device shall display upcoming calendar events
+- **FR-1.6** [Should]: The device shall display a trend arrow (↑ green, ↓ red)
+  next to each cryptocurrency price, indicating whether the most recently fetched
+  price is higher or lower than the previous fetched value. No arrow is shown on
+  the first fetch (no prior reference).
+- **FR-1.7** [May]: The device shall display upcoming calendar events
   (Phase 4 only).
 
 **WiFi / Connectivity**
@@ -606,6 +610,7 @@ Device erases NVS, reboots, and reverts to defaults.
 | TC-DISP-004 | Crypto display | Default coin list | BTC, ETH, LTC prices shown |
 | TC-DISP-005 | Staleness indicator | Block API for 2× refresh interval | Stale marker shown on TFT |
 | TC-DISP-006 | WiFi disconnect indicator | Disconnect WiFi | Indicator shown on TFT |
+| TC-DISP-007 | Crypto trend arrow | Wait for two fetch cycles; verify price goes up then down | ↑ green shown after price rise; ↓ red shown after price drop; no arrow on first fetch |
 | TC-DATA-001 | Weather API fetch | Valid API key, known city | Correct temperature returned |
 | TC-DATA-002 | Crypto API fetch | Default coins | Prices returned and displayed |
 | TC-DATA-003 | Cache on API failure | Disable internet access | Last known values remain on display |
@@ -637,6 +642,7 @@ Device erases NVS, reboots, and reverts to defaults.
 | FR-1.3 (crypto display) | Must | TC-DISP-004, TC-DATA-002 | Covered |
 | FR-1.4 (staleness indicator) | Should | TC-DISP-005 | Covered |
 | FR-1.5 (WiFi disconnect indicator) | Should | TC-DISP-006 | Covered |
+| FR-1.6 (crypto trend arrow) | Should | TC-DISP-007 | Covered |
 | FR-2.1 (WiFi STA connect) | Must | WIFI-001 | Covered |
 | FR-2.2 (credentials encrypted in NVS) | Must | TC-NVS-100, EC-NVS-203 | Covered |
 | FR-2.3 (auto-reconnect) | Must | WIFI-003, EC-100 | Covered |
