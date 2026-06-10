@@ -6,6 +6,8 @@
 typedef struct {
     char  city[32];
     float temp_c;
+    float temp_min;
+    float temp_max;
     char  condition[48];
     time_t last_updated;
     bool  valid;

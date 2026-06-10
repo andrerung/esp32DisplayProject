@@ -146,8 +146,10 @@ static void fetch_weather(void)
     /* temperature — nested inside "main":{} */
     const char *main_p = strstr(s_http_buf, "\"main\":");
     if (main_p) {
-        double t = 0;
-        if (jnum(main_p, "temp", &t)) w.temp_c = (float)t;
+        double t = 0, tmin = 0, tmax = 0;
+        if (jnum(main_p, "temp",     &t))    w.temp_c   = (float)t;
+        if (jnum(main_p, "temp_min", &tmin)) w.temp_min = (float)tmin;
+        if (jnum(main_p, "temp_max", &tmax)) w.temp_max = (float)tmax;
     }
 
     /* description — first element of "weather":[] */

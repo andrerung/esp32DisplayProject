@@ -248,7 +248,8 @@ and credentials configurable via portal.
 - **FR-1.1** [Must]: The device shall display current time (HH:MM:SS) and date
   (YYYY-MM-DD) on the TFT, updated every second.
 - **FR-1.2** [Must]: The device shall display current weather information
-  (temperature in °C, conditions text) for a configured city.
+  (temperature in °C, conditions text, daily low and high in °C) for a
+  configured city.
 - **FR-1.3** [Must]: The device shall display current prices for a configurable
   list of cryptocurrencies (default: Bitcoin, Ethereum, Litecoin).
 - **FR-1.4** [Should]: The device shall indicate data staleness on the TFT
@@ -606,7 +607,7 @@ Device erases NVS, reboots, and reverts to defaults.
 |---------|---------|-----------|-----------------|
 | TC-DISP-001 | Time display | Boot, observe TFT | Correct time shown, increments every 1 s |
 | TC-DISP-002 | SNTP sync | Boot after WiFi connect | Time updates from NTP within 10 s |
-| TC-DISP-003 | Weather display | Configure valid API key, city | Temperature and condition shown on TFT |
+| TC-DISP-003 | Weather display | Configure valid API key, city | Temperature, condition, and Lo/Hi range shown on TFT |
 | TC-DISP-004 | Crypto display | Default coin list | BTC, ETH, LTC prices shown |
 | TC-DISP-005 | Staleness indicator | Block API for 2× refresh interval | Stale marker shown on TFT |
 | TC-DISP-006 | WiFi disconnect indicator | Disconnect WiFi | Indicator shown on TFT |

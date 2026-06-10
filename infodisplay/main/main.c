@@ -187,7 +187,9 @@ static void ui_task(void *arg)
         data_fetch_get_weather(&w);
         bool weather_changed =
             w.valid != prev_weather.valid ||
-            w.temp_c != prev_weather.temp_c ||
+            w.temp_c   != prev_weather.temp_c   ||
+            w.temp_min != prev_weather.temp_min ||
+            w.temp_max != prev_weather.temp_max ||
             strcmp(w.city,      prev_weather.city)      != 0 ||
             strcmp(w.condition, prev_weather.condition) != 0;
 
@@ -195,10 +197,12 @@ static void ui_task(void *arg)
             prev_weather = w;
             display_fill_rect(0, TILE_WEATHER_Y, DISPLAY_WIDTH, TILE_WEATHER_H, COLOR_BLACK);
             if (w.valid) {
-                char line1[32];
+                char line1[32], line3[24];
                 snprintf(line1, sizeof(line1), "%.16s  %.0fC", w.city, w.temp_c);
-                display_draw_text(8, TILE_WEATHER_Y + 12, line1,       COLOR_CYAN,   COLOR_BLACK);
-                display_draw_text(8, TILE_WEATHER_Y + 34, w.condition, COLOR_YELLOW, COLOR_BLACK);
+                snprintf(line3, sizeof(line3), "Lo %.0fC  Hi %.0fC", w.temp_min, w.temp_max);
+                display_draw_text(8, TILE_WEATHER_Y + 2,  line1,       COLOR_CYAN,   COLOR_BLACK);
+                display_draw_text(8, TILE_WEATHER_Y + 22, w.condition, COLOR_YELLOW, COLOR_BLACK);
+                display_draw_text(8, TILE_WEATHER_Y + 42, line3,       COLOR_GRAY,   COLOR_BLACK);
             } else {
                 display_draw_text(8, TILE_WEATHER_Y + 20, "Fetching...", COLOR_GRAY, COLOR_BLACK);
             }
