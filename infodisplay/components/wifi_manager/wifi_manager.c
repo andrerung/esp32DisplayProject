@@ -92,6 +92,13 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
         s_retry = 0;
         ESP_LOGI(TAG, "IP: %s", s_ip);
         esp_event_post(WIFI_MANAGER_EVENTS, WIFI_MANAGER_CONNECTED, NULL, 0, 0);
+
+    } else if (base == IP_EVENT && id == IP_EVENT_STA_LOST_IP) {
+        /* DHCP lease expired without renewal — association may still be up,
+           but the device is unreachable until a new IP arrives. */
+        s_connected = false;
+        ESP_LOGW(TAG, "IP lost — waiting for DHCP");
+        esp_event_post(WIFI_MANAGER_EVENTS, WIFI_MANAGER_DISCONNECTED, NULL, 0, 0);
     }
 }
 
@@ -111,8 +118,11 @@ static void start_sta_mode(const char *ssid, const char *pass)
        UniFi-UDM advertises WPA3-transitional; WPA2-only connections get a GTK
        re-key timeout at 10 s because PMF-protected group-key EAPOL frames are
        required by the AP but not properly handled without SAE negotiation.
-       WPA3-SAE automatically enables PMF (pmf:1), which resolves both issues. */
-    wcfg.sta.threshold.authmode = WIFI_AUTH_WPA2_WPA3_PSK;
+       WPA3-SAE automatically enables PMF (pmf:1), which resolves both issues.
+       With an empty password the threshold must drop to OPEN, or the driver
+       rejects open/WEP/WPA1 APs and the device retries forever. */
+    wcfg.sta.threshold.authmode = pass[0] ? WIFI_AUTH_WPA2_WPA3_PSK
+                                          : WIFI_AUTH_OPEN;
     wcfg.sta.pmf_cfg.capable    = true;
     wcfg.sta.pmf_cfg.required   = false;
 
@@ -175,6 +185,8 @@ esp_err_t wifi_manager_start(void)
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
                                                wifi_event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
+                                               wifi_event_handler, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_LOST_IP,
                                                wifi_event_handler, NULL));
 
     if (ssid[0] == '\0') {
