@@ -117,14 +117,14 @@ static void start_sta_mode(const char *ssid, const char *pass)
     wifi_config_t wcfg = {};
     strlcpy((char *)wcfg.sta.ssid,     ssid, sizeof(wcfg.sta.ssid));
     strlcpy((char *)wcfg.sta.password, pass, sizeof(wcfg.sta.password));
-    /* WPA2+WPA3 mixed mode: prefer SAE (WPA3) when the AP supports it.
-       UniFi-UDM advertises WPA3-transitional; WPA2-only connections get a GTK
-       re-key timeout at 10 s because PMF-protected group-key EAPOL frames are
-       required by the AP but not properly handled without SAE negotiation.
-       WPA3-SAE automatically enables PMF (pmf:1), which resolves both issues.
-       With an empty password the threshold must drop to OPEN, or the driver
-       rejects open/WEP/WPA1 APs and the device retries forever. */
-    wcfg.sta.threshold.authmode = pass[0] ? WIFI_AUTH_WPA2_WPA3_PSK
+    /* threshold.authmode is a MINIMUM-security filter, not a preference: the
+       driver rejects any AP weaker than it (reason 211,
+       NO_AP_FOUND_IN_AUTHMODE_THRESHOLD). WPA2_WPA3_PSK (enum 7) was too high —
+       it excluded plain WPA2_PSK (enum 3) networks entirely. Use WPA2_PSK as the
+       floor: accept WPA2 and WPA3, reject only WEP/WPA1/open. WPA3-SAE is still
+       negotiated on transitional APs via the pmf + sae_pwe settings below.
+       With an empty password drop to OPEN so open networks are not rejected. */
+    wcfg.sta.threshold.authmode = pass[0] ? WIFI_AUTH_WPA2_PSK
                                           : WIFI_AUTH_OPEN;
     wcfg.sta.pmf_cfg.capable    = true;
     wcfg.sta.pmf_cfg.required   = false;
@@ -139,6 +139,13 @@ static void start_sta_mode(const char *ssid, const char *pass)
     ESP_ERROR_CHECK(esp_wifi_start()); /* STA_START fires → connect */
     /* Disable power save so DHCP offers and GTK re-key frames are never missed. */
     esp_wifi_set_ps(WIFI_PS_NONE);
+    /* Cap TX power to 8.5 dBm (34 × 0.25). At full ~20 dBm this USB-powered
+       ESP32-C3 browns out its own PA on transmit, corrupting outgoing auth
+       frames — the AP can't decode them and never replies, which surfaces as
+       disconnect reason 2 (AUTH_EXPIRE) on every AP regardless of signal.
+       The AP/setup path already does this; the STA path must too. */
+    esp_err_t tp = esp_wifi_set_max_tx_power(34);
+    if (tp != ESP_OK) ESP_LOGW(TAG, "set_max_tx_power: %s", esp_err_to_name(tp));
     ESP_LOGI(TAG, "Connecting to \"%s\"...", ssid);
 }
 
