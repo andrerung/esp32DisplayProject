@@ -360,7 +360,9 @@ static esp_err_t handler_save(httpd_req_t *req)
 
     /* Save credentials — never log pass or wkey (FR-7.4 / NFR-3.1) */
     nvs_config_set_str(NVS_KEY_WIFI_SSID, ssid);
-    nvs_config_set_str(NVS_KEY_WIFI_PASS, pass);
+    /* Only overwrite the password when a value was entered — a blank field
+       (browsers don't refill password inputs) must not wipe a stored password. */
+    if (pass[0]) nvs_config_set_str(NVS_KEY_WIFI_PASS, pass);
     if (city[0])  nvs_config_set_str(NVS_KEY_WEATHER_CITY, city);
     if (wkey[0])  nvs_config_set_str(NVS_KEY_WEATHER_KEY,  wkey);
     if (coins[0]) nvs_config_set_str(NVS_KEY_CRYPTO_COINS, coins);

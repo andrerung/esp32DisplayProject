@@ -79,8 +79,11 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         s_connected = false;
         esp_event_post(WIFI_MANAGER_EVENTS, WIFI_MANAGER_DISCONNECTED, NULL, 0, 0);
+        wifi_event_sta_disconnected_t *d = (wifi_event_sta_disconnected_t *)data;
         int delay = backoff_s(s_retry++);
-        ESP_LOGW(TAG, "Disconnected — retry in %d s", delay);
+        /* reason code pinpoints auth/handshake failures — never logs the password */
+        ESP_LOGW(TAG, "Disconnected (reason=%d) — retry in %d s",
+                 d ? d->reason : -1, delay);
         if (s_reconnect_timer) {
             esp_timer_start_once(s_reconnect_timer, (uint64_t)delay * 1000000ULL);
         }
@@ -125,6 +128,11 @@ static void start_sta_mode(const char *ssid, const char *pass)
                                           : WIFI_AUTH_OPEN;
     wcfg.sta.pmf_cfg.capable    = true;
     wcfg.sta.pmf_cfg.required   = false;
+    /* Offer BOTH SAE PWE methods. Recent ESP-IDF defaults to Hash-to-Element
+       only, but UniFi WPA3-transitional APs negotiate via Hunt-and-Peck — an
+       H2E-only STA gets no response to its auth frame (disconnect reason 2,
+       AUTH_EXPIRE). WPA3_SAE_PWE_BOTH lets the STA fall back to HnP. */
+    wcfg.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wcfg));
